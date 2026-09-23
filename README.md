@@ -398,6 +398,17 @@ python -m pip install -r requirements.txt
 python -m pet
 ```
 
+**Linux / macOS（推荐用 uv，一键建环境）**：
+
+```bash
+scripts/setup_dev_env.sh            # uv 建 .venv（Python 对齐 CI）+ 按 requirements.lock 同步
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q   # 无显示器跑测试
+.venv/bin/python -m pet                                   # 启动桌宠（需要图形会话）
+```
+
+细节（系统库、XDG 目录、受限 HOME/沙箱、为什么锁文件不取代 `requirements.txt`）见
+[`docs/LINUX-DEV-ENVIRONMENT-2026-09-22.md`](docs/LINUX-DEV-ENVIRONMENT-2026-09-22.md)。
+
 Windows 也可以直接双击 `run.bat`。它实际执行的是：
 
 ```text
@@ -1031,6 +1042,15 @@ $env:QT_QPA_PLATFORM = "offscreen"
 python -m pytest -q
 python -m compileall pet packaging scripts
 ```
+
+Linux / macOS 上等价的一键路径（uv 管理 `.venv`，Python 版本对齐 CI）：
+
+```bash
+scripts/setup_dev_env.sh
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
+```
+
+见 [`docs/LINUX-DEV-ENVIRONMENT-2026-09-22.md`](docs/LINUX-DEV-ENVIRONMENT-2026-09-22.md)。
 
 最近一轮记录（PR #76 合并后的 main，2026-09-06）：
 

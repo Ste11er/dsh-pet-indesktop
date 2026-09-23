@@ -2,6 +2,11 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.venv/
+# uv 的本地缓存与受管解释器（scripts/setup_dev_env.sh 默认落在仓库内，
+# 供只读 HOME / 容器 / 文件沙箱环境使用；.uv-cache 自身还带 .gitignore）
+.uv-cache/
+.uv-python/
 .DS_Store
 
 # 运行时产物

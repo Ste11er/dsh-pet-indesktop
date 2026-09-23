@@ -36,6 +36,7 @@
 | 文档 | 一句话内容 | 何时必读 |
 |---|---|---|
 | [`ONEDIR_PACKAGING.md`](ONEDIR_PACKAGING.md) | onedir 打包流水线：绿色版 zip + Inno Setup 安装包，目标是运行期零解压、不产生 `_MEI` 缓存。 | **改 PyInstaller spec、打包资源、或平台构建脚本（`scripts/build_onedir.ps1` / `build_macos.sh` / `build_linux.sh`）时必读**（AGENTS.md 口径）。 |
+| [`LINUX-DEV-ENVIRONMENT-2026-09-22.md`](LINUX-DEV-ENVIRONMENT-2026-09-22.md) | Linux 开发环境：`scripts/setup_dev_env.sh`（uv 管理 `.venv`、Python 对齐 CI、锁文件）、系统库、offscreen/无 HOME 写权限环境的适配与实机验收记录。 | **在 Linux 上建/修开发环境、跑套件、或遇到「本机红 CI 绿」「EROFS/只读 HOME」「本机装了全局 dsh 导致用例红」时必读**；改 `.python-version`、`requirements.lock`、`scripts/setup_dev_env.sh` 前也先读。 |
 | [`STABLE_BUILDS.md`](STABLE_BUILDS.md) | 稳定版构建冻结记录：受保护文件名、构建隔离规则、防止误覆盖稳定版产物。 | **改发布/构建工作流时必读**（AGENTS.md 口径）。注意其冻结对象是 onefile 时代的 `dist/*.exe`，现行发布形态已是 onedir（见文末过时清单）。 |
 | [`BUILD-CI-FAILURE-NOTES-2026-08.md`](BUILD-CI-FAILURE-NOTES-2026-08.md) | 三平台打包/CI 反复踩坑与最终解法汇总（持续更新）：脚本统一入口、资源漏收集、依赖只在叶子模块导入导致整族用例红等。 | CI 连续两轮红、或遇到"本机红 CI 绿"的依赖类假红时；动手重试之前先查这里是否已有同类记录。 |
 | [`ACCEPTANCE_TESTS.md`](ACCEPTANCE_TESTS.md) | 验收测试文件清单：设置窗口、DSH Bridge、Qt 生命周期/全量三条验收路径的精确命令与当前实测基线。 | 提 PR 前跑验收、或需要确认"这个改动该跑哪几个测试文件"时；改动测试边界后必须同步更新本文基线数字。 |

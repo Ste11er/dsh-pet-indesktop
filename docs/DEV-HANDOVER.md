@@ -408,6 +408,10 @@ python -m ruff check pet/ tests/        # 静态检查（仅 F 级规则）
 python -m compileall pet packaging scripts
 ```
 
+> Linux / macOS 上推荐 `scripts/setup_dev_env.sh`（uv 管理 `.venv`、Python 版本对齐 CI、
+> 按 `requirements.lock` 同步，并自检系统库）——见
+> [`LINUX-DEV-ENVIRONMENT-2026-09-22.md`](LINUX-DEV-ENVIRONMENT-2026-09-22.md)。
+
 需要**真实窗口**验证时不要设 `offscreen`，直接 `python -m pet`（或运行 `run.bat`），重点看：透明穿透与拖动无回归、气泡位于角色正上方、报时气泡与语音内容一致、设置页试听按钮可见可点。
 
 ### 6.4 已知环境性 flaky 与测试纪律
