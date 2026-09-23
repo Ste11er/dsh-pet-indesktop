@@ -24,6 +24,7 @@ import os
 import random
 import re
 import shutil  # compatibility namespace for existing integrations/tests
+import stat
 import subprocess
 import sys
 import threading
@@ -704,9 +705,14 @@ def _safe_is_dir(path: Path) -> bool:
     `Path.is_dir()` 只在路径**不存在**时返回 False；祖先目录没有搜索权限时会抛
     PermissionError（CI ubuntu 实测：tmp 落在 snap private /tmp 下直接 EACCES）。
     本模块的探测跑在「安装失败文案」与「启动自检」路径上——那里绝不允许抛异常。
+
+    实现显式走 `Path.stat()`（而不是 `Path.is_dir()`）：语义相同（都跟随符号链接、
+    都抛 OSError），但 Python 3.13+ 的 `is_dir()` 内部改走 `os.stat` 而不再经过
+    `Path.stat`，权限类用例无法再用打桩覆盖；显式 stat 让这条防线在任何 Python 上
+    都可测、行为一致。
     """
     try:
-        return path.is_dir()
+        return stat.S_ISDIR(path.stat().st_mode)
     except OSError:
         return False
 

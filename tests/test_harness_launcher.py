@@ -45,8 +45,16 @@ def test_find_launch_command_fallback_without_dsh(monkeypatch):
     node = shutil.which("node")
     if not node:
         return  # 本机没有 node，跳过该场景
+    # 两个陷阱都会让本机结论偏离用例语义，必须一起堵：
+    # 1) `hl._which` 用的是**增强 PATH**（含 ~/.local/bin 等），只 monkeypatch PATH
+    #    环境变量挡不住本机全局装的 dsh——直接打桩 _which 才等价于「PATH 上没有 dsh」；
+    # 2) 全局 node_modules 候选根取自真实家目录（~/.local/lib/node_modules 等），
+    #    同样会命中真实 dsh 安装。CI 机器没有全局 dsh，故此缺陷只在本地暴露；
+    #    同文件 test_windows_node_env 的 nvm 用例有同族处理。
+    monkeypatch.setattr(hl, "_which", lambda name: node if name == "node" else None)
+    monkeypatch.setattr(hl, "static_node_modules_roots", lambda: [])
+    monkeypatch.setattr(hl, "global_node_modules_roots", lambda: [])
     monkeypatch.setattr(hl, "_supports_no_open", lambda base: False)
-    monkeypatch.setenv("PATH", str(Path(node).parent))
     command = hl._find_launch_command()
     assert command is not None and "web" in command
     allowed = ("node", "node.exe", "npx", "npx.cmd")

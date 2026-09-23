@@ -9,9 +9,25 @@ import wave
 from pathlib import Path
 from types import SimpleNamespace
 from PySide6.QtCore import QTimer
+import pytest
 
 from pet import click_sound
 from pet import window as window_mod
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_sound_cache(tmp_path, monkeypatch):
+    """转码缓存目录固定到 tmp_path，用例不依赖真实 HOME 可写。
+
+    `_sound_cache_dir()` 走 `QStandardPaths.AppDataLocation`（Linux 上是
+    `$XDG_DATA_HOME` / `~/.local/share`）。在只读 HOME、容器/沙箱或受限
+    `XDG_DATA_HOME` 的 Linux 环境里那一步会直接 EROFS/EACCES，而本文件断言的是
+    缓存**键**语义与播放路径，与缓存落在哪个真实目录无关——固定到 tmp_path 后
+    任意平台/受限 HOME 下都稳定。
+    """
+    cache_dir = tmp_path / "sounds_cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(click_sound, "_sound_cache_dir", lambda: cache_dir)
 
 
 class FakeQtAudio:

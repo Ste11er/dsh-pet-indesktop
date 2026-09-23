@@ -772,6 +772,10 @@ class TestHarnessGlobalRoots:
         # 真实路径会先于本用例的 nvm 夹具命中，用例就不再只依赖夹具（CI 机器没有
         # 全局 dsh，故此缺陷只在本地暴露）。与同文件 POSIX 用例一致地清空静态
         # 候选，保证断言只反映「版本管理器根也能被找到」这一条产品语义。
+        # 注意：只清 _WINDOWS_NODE_MODULES 常量在非 Windows 上无效——Linux 走
+        # _POSIX_* 分支，本机 ~/.local/lib/node_modules 里的真实 dsh 照样漏进来；
+        # 因此直接打桩 static_node_modules_roots()，平台无关。
+        monkeypatch.setattr(hl, "static_node_modules_roots", lambda: [])
         monkeypatch.setattr(node_runtime, "_WINDOWS_NODE_MODULES", ())
         monkeypatch.setattr(
             hl, "_which", lambda name: "C:/nodejs/node.exe" if name == "node" else None

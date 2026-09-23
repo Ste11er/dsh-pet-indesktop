@@ -22,6 +22,7 @@ from __future__ import annotations
 import inspect
 import json
 import re
+from pathlib import Path
 
 from pet import config as config_mod
 from pet.config import Config
@@ -192,6 +193,37 @@ def _actual_defaults_keys(tmp_path) -> frozenset:
 def test_defaults_snapshot_matches_current(tmp_path):
     """默认值 dict 键集合 == 显式快照（现状文档化；新增键不改快照立即红）。"""
     assert _actual_defaults_keys(tmp_path) == DEFAULTS_SNAPSHOT
+
+
+def test_default_base_honors_xdg_config_home_on_linux(monkeypatch, tmp_path):
+    """Linux 上配置根遵循 XDG Base Directory（与 autostart 的 XDG 处理一致）。
+
+    未设置 XDG_CONFIG_HOME 时必须保持历史默认 ~/.config（老用户配置不搬家）。
+    """
+    from pet import config as config_mod
+
+    monkeypatch.setattr(config_mod.sys, "platform", "linux")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert config_mod._default_base() == tmp_path
+
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    assert config_mod._default_base() == Path.home() / ".config"
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", "   ")
+    assert config_mod._default_base() == Path.home() / ".config", "空白值不算设置"
+
+
+def test_default_base_keeps_windows_and_macos_layouts(monkeypatch, tmp_path):
+    """非 Linux 平台不受 XDG 影响：Windows 看 %APPDATA%，macOS 看 Library。"""
+    from pet import config as config_mod
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr(config_mod.sys, "platform", "win32")
+    assert config_mod._default_base() == tmp_path / "appdata"
+
+    monkeypatch.setattr(config_mod.sys, "platform", "darwin")
+    assert config_mod._default_base() == Path.home() / "Library" / "Application Support"
 
 
 def test_reload_whitelist_snapshot_matches_current():

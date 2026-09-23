@@ -448,7 +448,11 @@ def _default_base():
         return Path(os.environ.get("APPDATA") or Path.home())
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support"
-    return Path.home() / ".config"
+    # Linux 等 POSIX：遵循 XDG Base Directory 规范（`$XDG_CONFIG_HOME`），
+    # 与 pet/autostart.py 的 Linux 自启目录（同样读 XDG_CONFIG_HOME）保持一致。
+    # 未设置时保持历史默认 ~/.config，老用户配置位置不变。
+    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    return Path(xdg) if xdg else Path.home() / ".config"
 
 
 def _app_dir_name() -> str:
