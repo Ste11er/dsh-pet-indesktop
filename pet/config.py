@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from . import catalog
+from .agents.registry import AGENT_KEY_PATTERN, builtin_agent_keys
 from .report_gates import (
     LEGACY_PERCENT_GATES,
     LEGACY_SWITCH_GATES,
@@ -203,11 +204,10 @@ def _default_proactive_screen_data() -> dict:
 
 
 def _default_agent_link_data() -> dict:
+    # 内置 Agent 开关由注册表生成（pet/agents/registry.py）：新增一个内置
+    # Agent 只需在注册表加一条声明，默认值与清洗白名单自动跟上。
     return {
-        "dsh": False,
-        "claude": False,
-        "cursor": False,
-        "opencode": False,
+        **{key: False for key in builtin_agent_keys()},
         # 自定义联动 Agent（协议见 docs/AGENT_LINK_PROTOCOL.md §4）：只读监听
         # 用户指定的事件文件，不写外部配置、无需授权弹窗，默认空
         "custom_agents": [],
@@ -280,8 +280,9 @@ def _clean_click_sound_pack(value: Any) -> dict:
     }
 
 
-# 内置联动 Agent 键：custom_agents 的 key 不得与之重复
-_AGENT_LINK_BUILTIN_KEYS = ("dsh", "claude", "cursor", "opencode")
+# 内置联动 Agent 键（声明式注册表 pet/agents/registry.py 是唯一事实来源）：
+# custom_agents 的 key 不得与之重复；配置里每个键就是一个联动开关。
+_AGENT_LINK_BUILTIN_KEYS = builtin_agent_keys()
 # 自定义联动 Agent 条目上限（防配置文件被塞爆）
 _CUSTOM_AGENT_MAX = 8
 
@@ -302,7 +303,7 @@ def _clean_custom_agents(raw: Any) -> list[dict]:
         if not isinstance(item, dict):
             continue
         key = str(item.get("key") or "").strip().lower()
-        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", key):
+        if not re.fullmatch(AGENT_KEY_PATTERN, key):
             continue
         if key in _AGENT_LINK_BUILTIN_KEYS or key in seen:
             continue
@@ -324,10 +325,7 @@ def _clean_agent_link_data(raw: Any) -> dict:
     result.update(raw)
     result["custom_agents"] = _clean_custom_agents(raw.get("custom_agents"))
     for key in (
-        "dsh",
-        "claude",
-        "cursor",
-        "opencode",
+        *builtin_agent_keys(),
         "sound_enabled",
         "sound_start_enabled",
         "sound_done_enabled",

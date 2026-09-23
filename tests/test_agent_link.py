@@ -317,6 +317,8 @@ class TestAgentLinkManager:
             "claude": False,
             "cursor": False,
             "opencode": False,
+            "kimi": False,
+            "zcode": False,
             "custom_agents": [],
             "report_gates": {
                 "state": 1.0,
@@ -3693,7 +3695,7 @@ class TestInstallFinishedGuard:
 
     def _install_thread(self):
         return next(
-            t for t in threading.enumerate() if t.name == "dsh-bridge-install"
+            t for t in threading.enumerate() if t.name == "agent-install-dsh"
         )
 
     def test_late_completion_after_shutdown_is_dropped(self, tmp_path, monkeypatch):
@@ -3800,7 +3802,7 @@ class TestInstallFinishedGuard:
 
         def install_thread():
             return next(
-                t for t in threading.enumerate() if t.name == "dsh-bridge-install"
+                t for t in threading.enumerate() if t.name == "agent-install-dsh"
             )
 
         # 第一代安装 A：等它完成并 emit（queued 入队），但先不派发

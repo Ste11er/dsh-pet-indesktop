@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QMenu
 
 from .. import autostart as autostart_mod
 from .. import catalog
+from ..agents.registry import agent_specs
 from ..harness_launcher import launch_harness_gui
 from ..report_gates import REPORT_GATE_DEFAULTS
 from ..updater import QUARK_PAN_URL as QUARK_PAN_URL, REPO_URL as REPO_URL
@@ -336,19 +337,17 @@ def add_proactive_menu(menu: QMenu, pet) -> None:
 
 
 def add_agent_link_menu(menu: QMenu, pet) -> None:
-    """Agent 联动二级菜单（4 个 Agent 独立开关 + 自定义 Agent 三级子菜单 + 气泡提醒选项，失败/拒绝自动回滚勾选）。"""
+    """Agent 联动二级菜单（内置 Agent 独立开关 + 自定义 Agent 三级子菜单 + 气泡提醒选项，失败/拒绝自动回滚勾选）。
+
+    内置 Agent 名单来自声明式注册表（pet/agents/registry.py）：新增一个内置
+    Agent 只改注册表，菜单自动跟上。"""
     sub = add_submenu(menu, "Agent 联动", None)
     agent_cfg = dict(pet.cfg.get('agent_link', {}))
-    for agent_key, agent_label in (
-        ('dsh', 'DeepSeek Harness (DSH)'),
-        ('claude', 'Claude Code'),
-        ('cursor', 'Cursor'),
-        ('opencode', 'OpenCode'),
-    ):
-        act = sub.addAction(agent_label)
+    for spec in agent_specs():
+        act = sub.addAction(spec.menu_label or spec.name)
         act.setCheckable(True)
-        act.setChecked(bool(agent_cfg.get(agent_key, False)))
-        act.toggled.connect(lambda on, k=agent_key, a=act: pet.toggle_agent_link(k, on, a))
+        act.setChecked(bool(agent_cfg.get(spec.key, False)))
+        act.toggled.connect(lambda on, k=spec.key, a=act: pet.toggle_agent_link(k, on, a))
     # 自定义联动 Agent（config.json 的 agent_link.custom_agents，只读监听）：
     # 收进三级子菜单，避免用户配了多个自定义通道后把联动菜单撑长。
     custom_items = [

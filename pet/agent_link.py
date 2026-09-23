@@ -40,6 +40,16 @@ from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal
 from PySide6.QtWidgets import QMessageBox
 
 from . import agent_cost as agent_cost_mod
+from .agents.registry import (
+    INSTALL_BACKGROUND,
+    agent_display_names,
+    agent_spec,
+    agent_specs,
+    extra_event_states,
+    install_callable,
+    monitor_factory,
+    uninstall_callable,
+)
 from .click_sound import play_sound, resolve_builtin_sound
 from .report_gates import should_report_event
 from .agent_event_protocol import parse_agent_event
@@ -871,7 +881,10 @@ def _run_pnpm_repairing_specs(profile_dir: Path, *args: str) -> tuple[int, str, 
 # 标准统一状态词汇
 VALID_STATES = {"idle", "thinking", "working", "attention", "sleeping", "error"}
 
-# 通用事件名到统一状态的默认映射
+# 通用事件名到统一状态的默认映射。基表只列与宿主无关的通用事件；各 hook 类
+# Agent 的宿主事件（Notification / SubagentStart / PreCompact / Interrupt 等）
+# 由注册表 pet/agents/registry.py 的 EXTRA_EVENT_STATES 补充，避免新增一个
+# Agent 就要来这里加分支。
 DEFAULT_EVENT_STATE_MAP = {
     # 常用生命周期
     "SessionStart": "idle",
@@ -887,6 +900,7 @@ DEFAULT_EVENT_STATE_MAP = {
     "SubagentStop": "attention",
     "error": "error",
     "idle": "idle",
+    **extra_event_states(),
 }
 
 
@@ -2216,6 +2230,45 @@ class OpenCodeMonitor(BaseAgentMonitor):
                 self._emit_tool(tool, emit_gen)
 
 
+class HookAgentMonitor(BaseAgentMonitor):
+    """hook 注入型 Agent 的共用监视器：读统一协议文件，启动时刷新写入脚本。
+
+    宿主事件由注册表声明的事件映射（`DEFAULT_EVENT_STATE_MAP` +
+    `EXTRA_EVENT_STATES`）归一成六态，基类 `_poll` 已完整处理，因此这里只负责
+    「把写入脚本刷新成当前版本」——脚本整体归桌宠所有，升级自动覆盖旧版
+    （与 `ClaudeCodeMonitor` 同一口径）。
+    """
+
+    def start(self) -> bool:
+        try:
+            from .agents.hook_writer import ensure_event_hook
+
+            ensure_event_hook(self.events_dir, self.agent_key)
+        except Exception as exc:  # 脚本刷新失败不影响读取既有事件
+            log.debug("刷新 %s hook 脚本失败: %s", self.agent_key, exc)
+        return super().start()
+
+
+class KimiMonitor(HookAgentMonitor):
+    """Kimi 监视器：`[[hooks]]`（~/.kimi-code 或 ~/.kimi 的 config.toml）写统一协议文件。
+
+    注入/卸载实现在 pet/agents/kimi.py。
+    """
+
+    def __init__(self, config_dir: Path, parent=None) -> None:
+        super().__init__("kimi", config_dir, parent)
+
+
+class ZCodeMonitor(HookAgentMonitor):
+    """ZCode 监视器：`hooks.events.*`（~/.zcode/cli/config.json）写统一协议文件。
+
+    注入/卸载实现在 pet/agents/zcode.py。
+    """
+
+    def __init__(self, config_dir: Path, parent=None) -> None:
+        super().__init__("zcode", config_dir, parent)
+
+
 class CustomAgentMonitor(BaseAgentMonitor):
     """自定义联动 Agent 监视器（agent_link.custom_agents 配置驱动）。"""
 
@@ -2238,6 +2291,16 @@ class CustomAgentMonitor(BaseAgentMonitor):
             return False
         log.info("Agent 监视器 [%s] 已启动 (%s)", self.agent_key, self.events_file)
         return True
+
+
+def _install_outcome(result: Any) -> tuple[bool, str]:
+    """把安装器的返回值统一成 (是否成功, 失败原因)。
+
+    注册表允许安装器返回 bool（旧口径）或 (bool, str)（带原因的新口径）。
+    """
+    if isinstance(result, tuple) and len(result) == 2:
+        return bool(result[0]), str(result[1] or "")
+    return bool(result), ""
 
 
 def other_instances_use_agent(config, agent_key: str) -> bool:
@@ -2290,8 +2353,8 @@ class AgentLinkManager(QObject):
     # (session_key, operation, ok, detail)
     _exploration_control_result = Signal(str, str, bool, str)
 
-    # 联动气泡展示名
-    AGENT_NAMES = {"dsh": "DSH", "claude": "Claude Code", "cursor": "Cursor", "opencode": "OpenCode"}
+    # 联动气泡展示名（内置 Agent 的显示名来自声明式注册表，单一事实来源）
+    AGENT_NAMES = agent_display_names()
     # 过程汇报：工具名 → 用户可读文案（不展示原始命令/路径）
     TOOL_LABELS = {
         "read": "正在读文件", "write": "正在写文件", "edit": "正在改代码",
@@ -2376,12 +2439,12 @@ class AgentLinkManager(QObject):
         self._pending_interactions: dict[str, dict] = {}
         self._interaction_seq = 0  # 无 rpcId 的降级提示交互本地序号
 
-        self.monitors: dict[str, BaseAgentMonitor] = {
-            "dsh": DshMonitor("dsh", self.config_dir, self),
-            "claude": ClaudeCodeMonitor("claude", self.config_dir, self),
-            "cursor": CursorMonitor(self.config_dir, self),
-            "opencode": OpenCodeMonitor(self.config_dir, self),
-            }
+        # 内置 Agent 监视器由注册表装配（pet/agents/registry.py）：新增内置
+        # Agent 只需在注册表加一条声明，这里不再逐个硬编码。
+        self.monitors: dict[str, BaseAgentMonitor] = {}
+        for spec in agent_specs():
+            factory = monitor_factory(spec)
+            self.monitors[spec.key] = factory(self.config_dir, self)
         # 自定义联动 Agent：配置驱动的只读监视器（key/path 已在 config 清洗时
         # 保证合法唯一）；显示名合并进实例级 agent_names，类级 AGENT_NAMES
         # 保持仅内置（modern_settings_dialog 等按内置枚举处不受影响）。
@@ -2529,16 +2592,24 @@ class AgentLinkManager(QObject):
         self._behavior_detector.get_config_overrides(agent_cfg if isinstance(agent_cfg, dict) else {})
         self._exploration_watchdog.configure(agent_cfg if isinstance(agent_cfg, dict) else {})
 
-    def _install_dsh_worker(self, token: int) -> None:
-        """后台线程：安装 DSH 桥接插件，完成后信号回主线程。"""
-        ok, msg = DshMonitor.install_bridge()
+    def _install_agent_worker(self, agent_key: str, token: int) -> None:
+        """后台线程：安装「安装耗时不可控」的 Agent 接入（当前只有 DSH 桥接插件，
+        pnpm 解析可能数十秒），完成后信号回主线程。"""
+        spec = agent_spec(agent_key)
+        ok, msg = False, f"未知 Agent: {agent_key}"
+        installer = install_callable(spec) if spec is not None else None
+        if installer is not None:
+            try:
+                ok, msg = _install_outcome(installer(self.monitors[agent_key].events_file))
+            except Exception as exc:  # 安装器异常不该打死后台线程
+                ok, msg = False, str(exc)
         if token != self._install_token:
-            log.info("DSH 桥接安装结果已过期，丢弃")
+            log.info("%s 安装结果已过期，丢弃", agent_key)
             return
         try:
-            self.install_finished.emit("dsh", ok, msg, token)
+            self.install_finished.emit(agent_key, ok, msg, token)
         except RuntimeError:
-            log.debug("DSH 桥接安装完成但管理器已销毁，丢弃结果")
+            log.debug("%s 安装完成但管理器已销毁，丢弃结果", agent_key)
 
     def _warn_if_agent_absent(self, agent_key: str) -> None:
         """开启了联动但本机没装对应 Agent 时给用户提示（不然勾了永远没反应）。"""
@@ -2553,19 +2624,19 @@ class AgentLinkManager(QObject):
                 duration_ms=6000,
             )
             return
-        hints = {
-            "cursor": ("Cursor", Path.home() / ".cursor" / "projects"),
-            "opencode": ("OpenCode", Path.home() / ".local" / "share" / "opencode" / "opencode.db"),
-        }
-        item = hints.get(agent_key)
-        if not item:
+        # 内置 Agent：注册表声明了本机安装探测点（全部不存在 = 没装）
+        spec = agent_spec(agent_key)
+        if spec is None or not spec.detect_paths:
             return
-        name, marker = item
-        if not marker.exists() and hasattr(self.win, "show_bubble"):
-            self.win.show_bubble(
-                self._dialogue("agent.missing", f"已开启 {name} 联动监听，但没检测到本机安装 {name}——装了它我才能感知到哦", name=name),
-                duration_ms=6000,
-            )
+        if any((Path.home() / rel).exists() for rel in spec.detect_paths):
+            return
+        if not hasattr(self.win, "show_bubble"):
+            return
+        name = self.agent_names.get(agent_key, agent_key)
+        self.win.show_bubble(
+            self._dialogue("agent.missing", f"已开启 {name} 联动监听，但没检测到本机安装 {name}——装了它我才能感知到哦", name=name),
+            duration_ms=6000,
+        )
 
     def _on_install_finished(self, agent_key: str, ok: bool, msg: str,
                              token: int | None = None) -> None:
@@ -2577,6 +2648,7 @@ class AgentLinkManager(QObject):
             return
         if token is not None:
             self._install_pending.pop(agent_key, None)
+        name = self.agent_names.get(agent_key, agent_key)
         if ok:
             ag_cfg = dict(self.cfg.get("agent_link", {}))
             ag_cfg[agent_key] = True
@@ -2584,15 +2656,19 @@ class AgentLinkManager(QObject):
             self.cfg.save()
             self.apply_config()
             if hasattr(self.win, "show_bubble"):
-                name = self.AGENT_NAMES.get(agent_key, agent_key)
                 if self._report_allowed(self.cfg.get("agent_link", {}), "bridge.install.success"):
-                    self.win.show_bubble(self._dialogue("bridge.install.success", "DSH 桥接插件已装好，联动开启～", name=name), duration_ms=4000)
+                    self.win.show_bubble(
+                        self._dialogue("bridge.install.success", f"{name} 联动已装好，联动开启～", name=name),
+                        duration_ms=4000,
+                    )
         else:
-            log.warning("DSH 桥接插件安装失败: %s", msg)
+            log.warning("%s 联动安装失败: %s", name, msg)
             if hasattr(self.win, "show_bubble"):
-                name = self.AGENT_NAMES.get(agent_key, agent_key)
                 if self._report_allowed(self.cfg.get("agent_link", {}), "bridge.install.failed"):
-                    self.win.show_bubble(self._dialogue("bridge.install.failed", f"DSH 桥接插件安装失败：{msg}", name=name, detail=msg), duration_ms=6000)
+                    self.win.show_bubble(
+                        self._dialogue("bridge.install.failed", f"{name} 联动安装失败：{msg}", name=name, detail=msg),
+                        duration_ms=6000,
+                    )
 
     def _other_instances_enabled(self, agent_key: str) -> bool:
         """其他多开实例（含默认实例）是否也开着该 Agent 联动。
@@ -2602,82 +2678,86 @@ class AgentLinkManager(QObject):
     def set_enabled(self, agent_key: str, enabled: bool) -> bool:
         """开启或关闭指定 Agent 监视器（必要时弹出确认框）。
 
-        返回 False 表示未生效（用户拒绝授权 / hooks 安装失败），调用方应回滚 UI 勾选态。"""
+        装配事实全部来自注册表（pet/agents/registry.py）：是否写外部配置、
+        授权文案、安装耗时形态（同步/后台）、安装与卸载入口。
+        返回 False 表示未生效（用户拒绝授权 / hooks 安装失败 / 后台安装已启动），
+        调用方应回滚 UI 勾选态。"""
         if agent_key not in self.monitors:
             return False
 
+        spec = agent_spec(agent_key)
+        parent = self.win if hasattr(self.win, "winId") else None
+        name = self.agent_names.get(agent_key, agent_key)
+        agent_cfg = self.cfg.get("agent_link", {})
+
         if enabled:
-            # 针对需要注入 hooks 的 Agent 弹窗征求用户同意
-            if agent_key == "claude":
+            # 写外部 Agent 配置前必须先弹窗征得用户明确同意
+            if spec is not None and spec.needs_consent:
                 res = QMessageBox.question(
-                    self.win if hasattr(self.win, "winId") else None,
-                    "开启 Claude Code 联动",
-                    "开启联动需要在 ~/.claude/settings.json 中配置事件 hooks，\n"
-                    "用于在 Agent 干活时同步通知桌宠播放对应动作。\n\n"
-                    "是否允许注入 hooks 配置？（关闭联动时会自动移除）",
+                    parent,
+                    spec.consent_title or f"开启 {name} 联动",
+                    spec.consent_text,
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
                 if res != QMessageBox.StandardButton.Yes:
                     return False
-                if not ClaudeCodeMonitor.install_hooks(self.monitors["claude"].events_file):
+
+            if spec is not None and spec.install:
+                if spec.install_mode == INSTALL_BACKGROUND:
+                    # 安装走后台线程（pnpm 解析可能数十秒，绝不在 UI 线程阻塞）；
+                    # 菜单先回弹，安装完成后自动开启并气泡告知
+                    self._install_token += 1
+                    token = self._install_token
+                    self._install_pending[agent_key] = token
+                    if hasattr(self.win, "show_bubble") \
+                            and self._report_allowed(agent_cfg, "bridge.install.pending"):
+                        self.win.show_bubble(
+                            self._dialogue("bridge.install.pending", f"正在安装 {name} 联动…", name=name),
+                            duration_ms=4000,
+                        )
+                    threading.Thread(
+                        target=self._install_agent_worker, args=(agent_key, token), daemon=True,
+                        name=f"agent-install-{agent_key}",
+                    ).start()
+                    return False
+                installer = install_callable(spec)
+                try:
+                    ok, msg = _install_outcome(installer(self.monitors[agent_key].events_file))
+                except Exception as exc:
+                    ok, msg = False, str(exc)
+                if not ok:
                     QMessageBox.warning(
-                        self.win if hasattr(self.win, "winId") else None,
-                        "开启 Claude Code 联动",
-                        "hooks 配置写入失败，联动未开启。\n可查看日志了解详情。",
+                        parent,
+                        spec.consent_title or f"开启 {name} 联动",
+                        f"hooks 配置写入失败，联动未开启。\n{msg}\n可查看日志了解详情。",
                     )
                     return False
-            elif agent_key == "dsh":
-                res = QMessageBox.question(
-                    self.win if hasattr(self.win, "winId") else None,
-                    "开启 DSH 联动",
-                    "开启联动需要向 DeepSeek Harness 安装一个桥接小插件\n"
-                    "（把 DSH 的运行状态写到本地文件给桌宠读，仅本地、无网络）。\n\n"
-                    "是否允许一键安装？（关闭联动时会自动卸载）",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                )
-                if res != QMessageBox.StandardButton.Yes:
-                    return False
-                # 安装走后台线程（pnpm 解析可能数十秒，绝不在 UI 线程阻塞）；
-                # 菜单先回弹，安装完成后自动开启并气泡告知
-                self._install_token += 1
-                token = self._install_token
-                self._install_pending["dsh"] = token
-                if hasattr(self.win, "show_bubble"):
-                    name = self.AGENT_NAMES.get(agent_key, agent_key)
-                    if self._report_allowed(self.cfg.get("agent_link", {}), "bridge.install.pending"):
-                        self.win.show_bubble(self._dialogue("bridge.install.pending", "正在安装 DSH 桥接插件…", name=name), duration_ms=4000)
-                import threading
-                threading.Thread(
-                    target=self._install_dsh_worker, args=(token,), daemon=True,
-                    name="dsh-bridge-install",
-                ).start()
-                return False
         else:
-            if agent_key == "dsh":
-                self._install_pending.pop("dsh", None)
-                self._install_token += 1
-            # 关闭联动时移除我们注入的内容（只删自己的，用户自有配置不碰）；
-            # 其他多开实例仍在使用则保留（hooks/插件是全局状态）
-            if agent_key == "claude":
-                if self._other_instances_enabled("claude"):
-                    log.info("其他实例仍在使用 Claude 联动，保留 hooks")
-                elif not ClaudeCodeMonitor.uninstall_hooks():
-                    log.warning("Claude hooks 卸载未完全成功（配置已关闭，hooks 可能残留）")
-                    if hasattr(self.win, "show_bubble"):
-                        name = self.AGENT_NAMES.get(agent_key, agent_key)
-                        if self._report_allowed(self.cfg.get("agent_link", {}), "bridge.uninstall.failed"):
-                            self.win.show_bubble(self._dialogue("bridge.uninstall.failed", "Claude hooks 卸载未完全成功，可手动检查 ~/.claude/settings.json", name=name), duration_ms=6000)
-            elif agent_key == "dsh":
-                if self._other_instances_enabled("dsh"):
-                    log.info("其他实例仍在使用 DSH 联动，保留桥接插件")
-                elif not DshMonitor.uninstall_bridge():
-                    log.warning("DSH 桥接插件卸载未完全成功（配置已关闭，插件可能残留）")
-                    if hasattr(self.win, "show_bubble"):
-                        name = self.AGENT_NAMES.get(agent_key, agent_key)
-                        if self._report_allowed(self.cfg.get("agent_link", {}), "bridge.uninstall.failed"):
-                            self.win.show_bubble(self._dialogue("bridge.uninstall.failed", "DSH 桥接插件卸载未完全成功", name=name), duration_ms=6000)
+            if spec is not None and spec.install:
+                if spec.install_mode == INSTALL_BACKGROUND:
+                    self._install_pending.pop(agent_key, None)
+                    self._install_token += 1
+                # 关闭联动时移除我们注入的内容（只删自己的，用户自有配置不碰）；
+                # 其他多开实例仍在使用则保留（hooks/插件是全局状态）
+                if self._other_instances_enabled(agent_key):
+                    log.info("其他实例仍在使用 %s 联动，保留 hooks/插件", name)
+                else:
+                    uninstaller = uninstall_callable(spec)
+                    try:
+                        ok = bool(uninstaller()) if uninstaller is not None else True
+                    except Exception as exc:
+                        ok = False
+                        log.warning("%s 联动卸载异常: %s", name, exc)
+                    if not ok:
+                        log.warning("%s hooks 卸载未完全成功（配置已关闭，可能残留）", name)
+                        if hasattr(self.win, "show_bubble") \
+                                and self._report_allowed(agent_cfg, "bridge.uninstall.failed"):
+                            self.win.show_bubble(
+                                self._dialogue("bridge.uninstall.failed", f"{name} hooks 卸载未完全成功，可查看日志确认残留", name=name),
+                                duration_ms=6000,
+                            )
 
-        ag_cfg = dict(self.cfg.get("agent_link", {}))
+        ag_cfg = dict(agent_cfg)
         ag_cfg[agent_key] = bool(enabled)
         self.cfg.set("agent_link", ag_cfg)
         self.cfg.save()

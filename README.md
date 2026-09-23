@@ -199,7 +199,7 @@ v4.0.0 是一次大版本升级：在 v3.1.1 的桌宠基础上，合并了社�
 - **隐藏即零功耗**：桌宠隐藏后暂停动画解码与全部活动定时器（实测隐藏后 CPU ≈ 0%），显示时立即恢复。
 - **启动懒加载**：动画素材按需加载与优先级预热，冷启动更快。
 - **主动识屏（Windows + Chat 版）**：可选的"主动识屏陪伴"——白名单应用切换、停留时长门限、每日上限与冷却、dry-run 验证模式，截图不落盘。
-- **Agent 联动**：内置 DSH 桥接插件与 Claude hooks 安装器，桌宠可感知 AI Agent 干活状态并切换动作/冒泡。
+- **Agent 联动**：内置 6 家 Agent 接入（DSH 桥接插件 / Claude Code / Kimi / ZCode / Cursor / OpenCode），桌宠可感知 AI Agent 干活状态并切换动作/冒泡；其他 Agent 用通用接入助手 + 自定义通道零代码接入。
 
 **稳定与修复批次（多轮用户反馈 + 三方审查）**
 
@@ -251,7 +251,7 @@ DeepSeek 余额显示（气泡/小部件思路）参考了 [MeteorNOX/DeepSeek-B
 - 右键菜单/托盘菜单默认使用**新版现代风格**（可一键切回旧版模板）；设置对话框与 AI 对话窗口均为新版现代双栏布局，旧版手机式聊天窗保留可切换。
 - 桌宠隐藏后动画与定时器全部暂停（低功耗），显示时立即恢复。
 - 桌宠支持**锁定位置**、**SHIFT+左键拖动**与**不透明度**设置。
-- 可选「主动识屏陪伴」（Windows + Chat 版，默认关闭）与 Agent 联动（DSH 桥接 / Claude hooks，默认关闭）。
+- 可选「主动识屏陪伴」（Windows + Chat 版，默认关闭）与 Agent 联动（DSH / Claude Code / Kimi / ZCode / Cursor / OpenCode，默认关闭）。
 - WebM 播放速率设置可调，切换动画后仍按当前速率播放；支持相邻非待机动画之间的可选等待间隔。
 - 支持可开关的随机自言自语气泡，并优先定位在角色当前可见形象的正上方。
 - AI 对话窗口为独立窗口（现代双栏或经典手机式），不改变桌宠主窗口的透明背景、mask、鼠标穿透和动画状态机。
@@ -473,7 +473,9 @@ pythonw -m pet
 
 ### Agent 联动（默认关闭）
 
-- 内置 DSH 桥接插件（`integrations/dsh-pet-bridge`）与 Claude hooks 安装器：感知 AI Agent 状态并切换动作，支持开始干活、过程汇报、任务完成三种气泡反馈，右键 Agent 联动子菜单可独立开关。
+- 内置 6 家 Agent 接入（DSH 桥接插件 / Claude Code / Kimi / ZCode hooks 安装器 / Cursor 转写直读 / OpenCode 数据库直读）：感知 AI Agent 状态并切换动作，支持开始干活、过程汇报、任务完成三种气泡反馈，右键 Agent 联动子菜单可独立开关。名单与接入方式声明在 `pet/agents/registry.py`（新增一家只改注册表，详见 `docs/AGENT_LINK_PROTOCOL.md` §5）。
+- **新接入两家（2026-09）**：Kimi（`~/.kimi-code/config.toml` 或旧版 `~/.kimi/config.toml` 的 `[[hooks]]`，写盘前按 Kimi Code strict schema 自校验）、ZCode（`~/.zcode/cli/config.json` 的 `hooks.events.*`）。审批类事件一律不注册（桌宠目前只有 DSH 具备审批回写能力）。
+- **通用接入助手（任意 Agent 零代码接入）**：`python -m pet.agents.hook_writer --agent <key> --out <事件文件>` 直接生成可粘贴的 hook 命令，配合 `agent_link.custom_agents` 即可联动任何能执行命令的 Agent；受上游品牌政策约束、不便内置的宿主也走这条路径（见 `docs/AGENT-INTEGRATION-REGISTRY-2026-09-22.md` §4）。
 - **DSH 富事件状态**：thinking（思考）/ working（干活，带工具名）/ attention（需确认）/ error / idle 多态呈现，多会话按 attention > error > working > thinking > idle 聚合，子代理不抢状态；审批与提问气泡支持多问题项（气泡内多选提交），同一 Agent 的并发审批/提问按 `interaction_id` 互不覆盖。
 - **事件汇报概率门（PR #97）**：联动气泡控制从布尔开关升级为**概率门**（0.00–1.00），8 个事件聚合类别各一个滑块（默认 `activity=0.6`、其余 `1.0`）；旧开关/百分比自动迁移，右键菜单保留 0/1 两端快捷入口。概率门只管气泡这一步，检测器与原始记录链不采样。
 - **探索循环 Watchdog 控制（PR #91）**：风险分达阈值时发常驻气泡，带「自动优化（replan）/ 终止（interrupt）/ 忽略」；控制请求最长阻塞 30s，按钮回调只收气泡 + 起后台线程、结果经 Qt 信号回主线程（GUI 不阻塞），回执按相位区分文案，会话结束自动收起控制气泡。
@@ -976,6 +978,7 @@ pet/
 ├── proactive_limiter.py      # 主动识屏频控
 ├── proactive_memory.py       # 主动识屏记忆
 ├── agent_link.py             # Agent 联动监视器（多 Agent 事件源：CLI/IDE/SQLite 轮询）
+├── agents/                   # Agent 接入：声明式注册表 + 通用 hook 写入器/接入助手 + Kimi/ZCode 注入器
 ├── multi_window_shared.py    # 进程级多窗共享子系统（agent_link/proactive/全屏 watcher）
 ├── vision.py                 # 视觉模型调用（看看屏幕/主动识屏；PIL 懒加载）
 ├── harness_launcher.py       # DeepSeek Harness 一键启动

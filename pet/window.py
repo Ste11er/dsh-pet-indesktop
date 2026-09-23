@@ -4070,7 +4070,10 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
             self.cfg.set('agent_link', ag_data)
             self.cfg.save()
         if on:
-            self.show_bubble(f"已开启 {agent_key.upper()} 状态联动监听～", duration_ms=4000)
+            # 显示名优先取管理器（注册表来源）；自定义/未装配时回落大写字面量
+            names = getattr(self.agent_link_manager, "agent_names", None) or {}
+            label = names.get(agent_key) or agent_key.upper()
+            self.show_bubble(f"已开启 {label} 状态联动监听～", duration_ms=4000)
 
     def toggle_agent_link(self, agent_key: str, on: bool, action=None) -> None:
         """公开转发：切换 Agent 状态联动子项（等价 _toggle_agent_link）。"""
