@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import catalog
+from .window_activation import apply_show_without_activating
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,10 @@ class DynamicIsland(QWidget):
         )
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        # 显示不抢焦点。Linux 上这里不能再设 WA_ShowWithoutActivating：它会让 KWin 给
+        # 这个永不接受焦点的窗口打上 _NET_WM_STATE_DEMANDS_ATTENTION 且永不自动清除，
+        # 任务栏条目于是持续高亮/被唤醒。规则收口见 pet/window_activation.py。
+        apply_show_without_activating(self)
         if hasattr(Qt.WidgetAttribute, "WA_MacAlwaysShowToolWindow"):
             self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow, True)
 

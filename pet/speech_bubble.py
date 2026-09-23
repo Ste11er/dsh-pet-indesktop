@@ -42,6 +42,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .window_activation import apply_show_without_activating
+
 # 批6-2 拆分后纯函数区 re-export（维持既有 import 兼容；外部调用点本批不改）
 from .speech_bubble_text import (
     BUBBLE_BODY_FONT_PX,
@@ -263,12 +265,13 @@ class PetSpeechBubble(QFrame):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         # 气泡只是状态提示，在所有平台都不应该成为键盘焦点窗口。
-        # WA_ShowWithoutActivating 在部分窗口系统上只是提示，而这个原生窗口
-        # flag 才是防止定时 show() 抢走其他应用输入光标的硬约束。
+        # 下面这个原生窗口 flag 才是防止定时 show() 抢走其他应用输入光标的硬约束；
+        # WA_ShowWithoutActivating 在部分窗口系统上只是提示，在 Linux/X11 上更会让
+        # KWin 给窗口永久打上 _NET_WM_STATE_DEMANDS_ATTENTION（任务栏一直高亮）。
         flags |= Qt.WindowType.WindowDoesNotAcceptFocus
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        apply_show_without_activating(self)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         if _MAC:
             # 与主窗口一致：Tool 窗口置顶在 macOS 上需要该属性（QTBUG-38580）

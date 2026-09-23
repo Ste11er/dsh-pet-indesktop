@@ -11,6 +11,8 @@ from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
+from .window_activation import apply_show_without_activating
+
 
 class DesktopNotification(QWidget):
     """右下角常驻/限时通知气泡。"""
@@ -35,7 +37,8 @@ class DesktopNotification(QWidget):
         )
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        # 显示不抢焦点；Linux 上由 WindowDoesNotAcceptFocus 承担（见 window_activation）。
+        apply_show_without_activating(self)
         if hasattr(Qt.WidgetAttribute, "WA_MacAlwaysShowToolWindow"):
             self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow, True)
 

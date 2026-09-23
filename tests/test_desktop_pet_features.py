@@ -14,7 +14,12 @@ def test_speech_bubble_never_accepts_focus():
     app = QApplication.instance() or QApplication([])
     bubble = PetSpeechBubble()
     assert bubble.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus
-    assert bubble.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+    # Linux/X11 上不再设 WA_ShowWithoutActivating：它会让 KWin 给这个永不接受焦点的窗口
+    # 永久打上 _NET_WM_STATE_DEMANDS_ATTENTION，任务栏条目一直高亮/被唤醒。
+    # 见 docs/KDE-TASKBAR-DEMANDS-ATTENTION-2026-09-22.md 与 pet/window_activation.py。
+    assert bubble.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating) is (
+        not sys.platform.startswith("linux")
+    )
     assert bubble.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     bubble.close()
     app.processEvents()

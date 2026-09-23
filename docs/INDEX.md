@@ -51,6 +51,7 @@
 |---|---|---|
 | [`WINDOW_PY_SPLIT_GUIDE.md`](WINDOW_PY_SPLIT_GUIDE.md) | `pet/window.py`（`PetWindow`）的演进指南：功能驱动的拆分流程、控制器边界与架构红线。 | **给 `window.py` 加功能前必读**（README 口径）；凡新功能预计超过约 100 行、或需改 3 个以上同域方法、或行数预算告警时，先按本文拆控制器。 |
 | [`QT-LIFECYCLE-FULL-SUITE-STABILIZATION-2026-09.md`](QT-LIFECYCLE-FULL-SUITE-STABILIZATION-2026-09.md) | Qt 生命周期与全量套件稳定性收口记录：Windows/offscreen 下原生崩溃（0xC0000005 / 0xC0000374）的归属分析与 QObject owner 清理方案。 | 全量套件出现随机原生崩溃、或改动 `PetWindow.closeEvent()`、`PetSpeechBubble` owner 清理、菜单执行 seam、后台资源 teardown 时。 |
+| [`KDE-TASKBAR-DEMANDS-ATTENTION-2026-09-22.md`](KDE-TASKBAR-DEMANDS-ATTENTION-2026-09-22.md) | KDE/X11 下「窗口一直高亮、任务栏一直被唤醒」的定位与修复：`WA_ShowWithoutActivating` → `_NET_WM_STATE_DEMANDS_ATTENTION` 永不自清，规则收口到 `pet/window_activation.py`。 | **改动灵动岛/气泡/通知等"置顶且不接受焦点"窗口的 flags 与显示属性时必读**；把 `WA_ShowWithoutActivating` 加回 Linux 分支前必读（那是本缺陷的触发条件）。 |
 
 > 与 ffmpeg 派生、预热调度、Windows 关机/注销路径相关的权威档案是 issue #111（见下方「专项 issue 档案与事故复盘」分组），因为改这几处代码同时牵涉渲染生命周期与会话拆除时序。
 
@@ -69,7 +70,7 @@
 | [`SETTINGS-REDESIGN-IMPLEMENTATION-LOG.md`](SETTINGS-REDESIGN-IMPLEMENTATION-LOG.md) | 设置与菜单重构的实现及踩坑记录：菜单动作注册表、菜单编辑器、七个能力域、草稿写回语义。 | 需要了解菜单/设置重构的**实际实现结构**与其断点续作位置（`.scratch/settings-redesign/HANDOFF.md`）时。 |
 | [`SETTINGS-REDESIGN-UI-ACCEPTANCE.md`](SETTINGS-REDESIGN-UI-ACCEPTANCE.md) | 设置页逐页 UI 验收记录：窗口矩阵（尺寸×明暗）与最终保留的截图证据清单。 | 修改设置页视觉后需要对照既有验收矩阵重跑、或需要定位合理截图证据路径时。 |
 | [`SETTINGS-REPORT-PROBABILITY-2026-09-10.md`](SETTINGS-REPORT-PROBABILITY-2026-09-10.md) | 事件汇报概率门（`report_gates`）的设置变更记录：8 个门的准入契约（setting_id / domain / 搜索别名）与准出证据。 | 增删/调整汇报概率门、或按 `SETTINGS-CHANGE-GATES.md` 需要一份设置变更契约的书写范例时。 |
-| [`BUGFIX-AND-FEATURES-2026-08-24.md`](BUGFIX-AND-FEATURES-2026-08-24.md) | 一次性开发记录：气泡显示不抢输入焦点、EXE 图标裁剪、右键菜单「生小肥鱼」独立进程启动、菜单图标补齐。 | 改窗口激活/焦点策略（`WS_EX_NOACTIVATE` 类问题）、图标生成（`scripts/make_icon.py`）或子进程启动路径时。 |
+| [`BUGFIX-AND-FEATURES-2026-08-24.md`](BUGFIX-AND-FEATURES-2026-08-24.md) | 一次性开发记录：气泡显示不抢输入焦点、EXE 图标裁剪、右键菜单「生小肥鱼」独立进程启动、菜单图标补齐。 | 改窗口激活/焦点策略（`WS_EX_NOACTIVATE` 类问题）、图标生成（`scripts/make_icon.py`）或子进程启动路径时；Linux/X11 侧另见 [`KDE-TASKBAR-DEMANDS-ATTENTION-2026-09-22.md`](KDE-TASKBAR-DEMANDS-ATTENTION-2026-09-22.md)。 |
 
 ---
 
