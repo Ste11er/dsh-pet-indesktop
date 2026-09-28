@@ -51,6 +51,7 @@ RELOAD_WHITELIST_SNAPSHOT = frozenset(
         "chat_follow_pet",
         "chat_ui_style",
         "click_show_balance",
+        "click_show_quota",
         "click_show_self_talk",
         "click_sound_enabled",
         "click_sound_pack",

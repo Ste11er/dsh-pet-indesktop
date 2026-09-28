@@ -61,6 +61,16 @@ def build_click_rows(dialog) -> list[SettingRow]:
                 dialog.click_balance_check,
             )
         )
+    if getattr(dialog, "click_quota_check", None) is not None:
+        # 订阅额度开关不依赖聊天/API Key，任何变体都会出现；紧随余额之后。
+        rows.append(
+            SettingRow(
+                "click_quota",
+                "点击显示订阅额度",
+                "点击桌宠时查询订阅账户的额度窗口（如 5 小时 / 7 天）并用气泡展示。",
+                dialog.click_quota_check,
+            )
+        )
     rows.extend(
         [
             SettingRow("click_self_talk", "点击触发自言自语", "点击时随机显示一条自言自语内容；打开后可用下方两项把同一句读出来。", dialog.click_self_talk_check),

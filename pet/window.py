@@ -442,6 +442,7 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
         self.pet_opacity: int = int(_float_or_default(config.get('pet_opacity', 100), 100, 10, 100))
         self._applied_opacity: float | None = None  # 已应用到窗口的不透明度
         self.click_show_balance: bool = bool(config.get('click_show_balance', False))
+        self.click_show_quota: bool = bool(config.get('click_show_quota', False))
         self.click_show_self_talk: bool = bool(config.get('click_show_self_talk', False))
         self.animation_gap_seconds: float = max(0.0, min(3600.0, float(config.get('animation_gap_seconds', 0.0))))
         self._animation_gap_active = False
@@ -3447,7 +3448,10 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
         self._switch(click_name)
         if resolve_click_sound_pair(self.cfg.get("click_sound_pack"), data_dir=self.cfg.dir) is None:
             self._schedule_click_sound()
-        if self.click_show_balance and callable(self.on_show_balance):
+        # 余额与订阅额度共用同一个点击入口：任一开关打开都要回调，由 app 侧
+        # 按开关决定查谁、并把两段合成同一个气泡（两个 provider 各弹一次会互抢）。
+        if (self.click_show_balance or getattr(self, "click_show_quota", False)) \
+                and callable(self.on_show_balance):
             self.on_show_balance(self)
         elif self.click_show_self_talk:
             # 点击自言自语是**独立开关**：只认 ``click_show_self_talk``，不再搭
@@ -3985,6 +3989,7 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
         self._self_talk_max_interval = max(self._self_talk_min_interval, float(self.cfg.get('self_talk_max_interval', DEFAULT_SELF_TALK_MAX_INTERVAL)))
         self._throw_speed_cap = physics_mod.throw_speed_cap(self.cfg.get('throw_strength'))
         self.click_show_balance = bool(self.cfg.get('click_show_balance', False))
+        self.click_show_quota = bool(self.cfg.get('click_show_quota', False))
         self.click_show_self_talk = bool(self.cfg.get('click_show_self_talk', False))
         self._schedule_self_talk()
         # Phase 1：主动识屏/Agent 联动按配置懒装配或同步。

@@ -2118,8 +2118,7 @@ class ModernSettingsDialog(QDialog):
                 "y": existing_island.get("y"),
             },
         )
-        if self.click_balance_check is not None:
-            self.config.set("click_show_balance", self.click_balance_check.isChecked())
+        settings_pet_controls.save_click_provider_toggles(self)
         self.config.set("click_show_self_talk", self.click_self_talk_check.isChecked())
         self.config.set("self_talk_speak_enabled", self.click_self_talk_speak_check.isChecked())
         self.config.set("self_talk_voice_precache_enabled",

@@ -2748,9 +2748,13 @@ def test_product_copy_has_no_external_brand_reference():
             if not path.is_file() or path.suffix.lower() not in {".py", ".qss", ".md", ".json"}:
                 continue
             # Competitive research records source names by design; they are
-            # evidence, not user-facing product copy.
+            # evidence, not user-facing product copy. 订阅额度集成同理：它必须
+            # 命名真实的凭据目录与主机路径，属集成代码而非产品文案。
             if (
-                path.name in {"agent_link.py", "test_agent_link.py"}
+                path.name in {
+                    "agent_link.py", "test_agent_link.py",
+                    "chatgpt_quota.py", "test_chatgpt_quota.py",
+                }
                 or path.name.endswith("-RESEARCH.md")
                 # Contributor/change reports are repository evidence, not
                 # user-facing product copy and may mention external brands.
