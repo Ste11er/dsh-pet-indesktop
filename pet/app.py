@@ -37,6 +37,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import autostart as autostart_mod
 from . import balance as balance_mod
+from . import chatgpt_quota as quota_mod
 from . import catalog
 from . import click_sound
 from . import self_talk_voice
@@ -116,6 +117,39 @@ class _QuietBalanceBridge(_BackgroundResult):
             island.set_balance_info(owner._island_tier_hint(), "余额查询失败")
 
 
+class _InfoBridge(_BackgroundResult):
+    """余额 + 订阅额度合并查询结果：一次点击只冒一个合成气泡。
+
+    两段各自独立成败：某段失败只在气泡里降级成一行提示，另一段照常显示；
+    灵动岛上失败的那一段给出明确状态，绝不把旧值当现值留着装死。
+    """
+
+    def __init__(self, win, owner=None):
+        super().__init__()
+        self.win = win
+        self.owner = owner
+        self.done.connect(self._show)
+
+    def _show(self, ok: bool, payload) -> None:
+        owner = self.owner
+        if not ok:
+            if self.win is not None and shiboken6.isValid(self.win):
+                self.win.show_bubble(str(payload), duration_ms=6000)
+            return
+        balance_payload, snapshot, balance_error, quota_error = payload
+        if owner is not None:
+            owner._update_island_quota(snapshot)
+            if snapshot is None and quota_error:
+                island = getattr(owner, "island", None)
+                if island is not None:
+                    island.set_quota_info("额度查询失败")
+            if balance_payload is not None:
+                owner._update_island_balance(balance_payload)
+        if self.win is not None and shiboken6.isValid(self.win):
+            _show_info_payload(self.win, balance_payload, snapshot,
+                               balance_error, quota_error)
+
+
 def _persona_picker(win):
     """Return an application-owned picker without extending PetWindow state."""
     try:
@@ -148,6 +182,47 @@ def _persona_text(win, key: str, fallback: str, **values) -> str:
     return fallback.format(**values) if text is fallback else text
 
 
+def _balance_bubble_text(win, payload) -> str:
+    """余额气泡正文（套用人格短语包裹；缓存命中与网络查询共用）。"""
+    if isinstance(payload, dict):
+        text = str(payload.get("text") or "余额信息为空")
+    else:
+        text = str(payload)
+    cfg = getattr(win, "cfg", None)
+    if cfg is None:
+        return text
+    return _persona_text(win, "balance.result", "余额情况：{text}", text=text)
+
+
+def _balance_bubble_subtitle(win) -> str:
+    """余额气泡副标题：峰谷提示（按颜色开关决定富文本/纯文本）。"""
+    cfg = getattr(win, "cfg", None)
+    mode = str(cfg.get("balance_tier_labels_mode", "default") or "default") if cfg is not None else "default"
+    custom_peak = str(cfg.get("balance_tier_label_peak", "") or "") if cfg is not None else ""
+    custom_idle = str(cfg.get("balance_tier_label_idle", "") or "") if cfg is not None else ""
+    peak_label, idle_label = balance_mod.resolve_tier_labels(mode, custom_peak, custom_idle)
+    color_enabled = bool(cfg.get("balance_tier_color_enabled", True)) if cfg is not None else True
+    if color_enabled:
+        return balance_mod.deepseek_pricing_hint_html(
+            peak_label=peak_label, idle_label=idle_label,
+        )
+    return balance_mod.deepseek_pricing_hint(
+        peak_label=peak_label, idle_label=idle_label,
+    )
+
+
+def _balance_bubble_animate(win, payload) -> None:
+    """按余额档位播放余额动画（仅当素材存在时静默跳过）。"""
+    info = payload.get("info") if isinstance(payload, dict) else None
+    p = balance_mod.balance_percent((info or {}).get("total"))
+    if p is None:
+        return
+    idx = balance_mod.balance_event_index(p)
+    name = balance_mod.BALANCE_EVENT_NAMES[idx]
+    if name and hasattr(win, "request_link_anim"):
+        win.request_link_anim(name)
+
+
 def _show_balance_payload(win, payload) -> None:
     """展示余额气泡（含峰谷副标题）并按余额档位触发余额动画。
 
@@ -156,40 +231,38 @@ def _show_balance_payload(win, payload) -> None:
     """
     if win is None or not shiboken6.isValid(win):
         return
-    if isinstance(payload, dict):
-        text = str(payload.get("text") or "余额信息为空")
-        info = payload.get("info") or {}
-    else:
-        text = str(payload)
-        info = {}
-    cfg = getattr(win, "cfg", None)
-    if cfg is not None:
-        text = _persona_text(win, "balance.result", "余额情况：{text}", text=text)
-    cfg = getattr(win, "cfg", None)
-    mode = str(cfg.get("balance_tier_labels_mode", "default") or "default") if cfg is not None else "default"
-    custom_peak = str(cfg.get("balance_tier_label_peak", "") or "") if cfg is not None else ""
-    custom_idle = str(cfg.get("balance_tier_label_idle", "") or "") if cfg is not None else ""
-    peak_label, idle_label = balance_mod.resolve_tier_labels(mode, custom_peak, custom_idle)
-    color_enabled = bool(cfg.get("balance_tier_color_enabled", True)) if cfg is not None else True
-    if color_enabled:
-        subtitle = balance_mod.deepseek_pricing_hint_html(
-            peak_label=peak_label, idle_label=idle_label,
-        )
-    else:
-        subtitle = balance_mod.deepseek_pricing_hint(
-            peak_label=peak_label, idle_label=idle_label,
-        )
     win.show_bubble(
-        text, duration_ms=6000,
-        subtitle=subtitle,
+        _balance_bubble_text(win, payload), duration_ms=6000,
+        subtitle=_balance_bubble_subtitle(win),
     )
-    # 按余额档位播放上游余额动画（仅当素材存在时静默跳过）
-    p = balance_mod.balance_percent(info.get("total"))
-    if p is not None:
-        idx = balance_mod.balance_event_index(p)
-        name = balance_mod.BALANCE_EVENT_NAMES[idx]
-        if name and hasattr(win, "request_link_anim"):
-            win.request_link_anim(name)
+    _balance_bubble_animate(win, payload)
+
+
+def _show_info_payload(win, balance_payload, snapshot, balance_error=None,
+                       quota_error=None) -> None:
+    """余额段 + 订阅额度段合成同一个气泡（各段独立失败，绝不互相吞掉）。
+
+    只有余额段时副标题/档位动画与 ``_show_balance_payload`` 行为一致；
+    只有额度段时不带副标题（额度没有峰谷概念）。
+    """
+    if win is None or not shiboken6.isValid(win):
+        return
+    sections: list[str] = []
+    if balance_payload is not None:
+        sections.append(_balance_bubble_text(win, balance_payload))
+    if snapshot is not None:
+        sections.append(snapshot.bubble_text())
+    for reason in (balance_error, quota_error):
+        if reason:
+            sections.append(str(reason))
+    text = "\n".join(sections) or "暂无可显示的额度信息"
+    subtitle = _balance_bubble_subtitle(win) if balance_payload is not None else ""
+    if subtitle:
+        win.show_bubble(text, duration_ms=6000, subtitle=subtitle)
+    else:
+        win.show_bubble(text, duration_ms=6000)
+    if balance_payload is not None:
+        _balance_bubble_animate(win, balance_payload)
 
 
 class _UpdateBridge(_BackgroundResult):
@@ -453,7 +526,9 @@ class PetInstance:
         win.on_open_chat = self._slot_wrap(self.open_chat) if self.enable_chat else None
         win.on_open_quick_chat = self._slot_wrap(self.open_quick_chat) if self.enable_chat else None
         win.on_open_chat_settings = self._slot_wrap(self.open_chat_settings) if self.enable_chat else None
-        win.on_show_balance = self._slot_wrap(self.shell.show_balance) if self.enable_chat else None
+        # 余额与订阅额度共用点击入口：show_click_info 内部按开关决定查谁/是否合并，
+        # 且余额能力在内部按 enable_chat 再判一次，因此这里可以无条件接线。
+        win.on_show_balance = self._slot_wrap(self.shell.show_click_info)
         win.on_check_update = self._slot_wrap(self.shell.check_update)
         win.on_look_synced = self._slot_wrap(self.sync_look_to_chat) if self.enable_chat else None
         win.on_look_screen = win.look_at_screen if self.enable_chat and hasattr(win, "look_at_screen") else None
@@ -1067,7 +1142,7 @@ class AppShell:
         self._dsh_state_tracker.state_changed.connect(self._on_dsh_state_changed)
         self._dsh_state_tracker.user_message.connect(self._on_dsh_user_message)
         self._balance_timer = QTimer()
-        self._balance_timer.timeout.connect(self.show_balance)
+        self._balance_timer.timeout.connect(self._on_balance_timer)
         self._update_bridge = None
         self._balance_cache_path = config.dir / 'balance_cache.json'  # 跨实例共享余额缓存（按 provider 绑定）
         # 待办提醒：进程级单例（多窗共用一个调度器，避免每窗一个定时器重复通知），
@@ -2127,6 +2202,8 @@ class AppShell:
             self.island.chat_requested.connect(self._chat_from_island)
             # 卡片展开 → 静默刷新余额（不冒泡、不播动画，只更新岛卡片）
             self.island.card_expanded.connect(self._quiet_balance_refresh)
+            # 同一展开时机同步订阅额度行（只读缓存/占位，不发网络请求）
+            self.island.card_expanded.connect(self._sync_island_quota_placeholder)
             # 进程级聊天完成订阅：AI 回复到达 → 岛播事件动效并记录最近消息。
             # 无聊天功能的打包变体会排除 pet.chat（参照 config.py 的同款守卫），
             # 那里跳过订阅即可，灵动岛本体照常可用。
@@ -2375,6 +2452,40 @@ class AppShell:
         if animate:
             self.island.notify_event("balance")
 
+    def _quota_enabled(self) -> bool:
+        """订阅额度开关（点击查询与自动刷新共用同一开关）。"""
+        return bool(self.config.get("click_show_quota", False))
+
+    def _update_island_quota(self, snapshot) -> None:
+        """把订阅额度卡片行同步给灵动岛（None = 这一行保持现状，不动它）。"""
+        if getattr(self, "island", None) is None or snapshot is None:
+            return
+        self.island.set_quota_info(snapshot.card_line_html())
+
+    def _sync_island_quota_placeholder(self) -> None:
+        """额度行占位/收起：开关关闭立即整行隐藏，未查询过时显示“待查询”。"""
+        island = getattr(self, "island", None)
+        if island is None:
+            return
+        cached = getattr(self, "_quota_cache", None)
+        if cached is not None:
+            island.set_quota_info(cached[1].card_line_html())
+        elif self._quota_enabled():
+            island.set_quota_info("订阅额度 待查询")
+        else:
+            island.set_quota_info("")
+
+    def _on_balance_timer(self) -> None:
+        """余额自动刷新定时器槽：额度开关打开时与余额合并成一个气泡。
+
+        余额本身仍按原行为刷新（不受"点击显示余额"开关影响）；额度复用同一
+        刷新间隔，不新增配置项。
+        """
+        if self._quota_enabled():
+            self.show_combined(force_balance=getattr(self, "enable_chat", True))
+        else:
+            self.show_balance()
+
     def _quiet_balance_refresh(self, *, force: bool = False) -> None:
         """灵动岛卡片展开时的静默余额刷新：不冒泡、不播动画，只更新岛卡片。
 
@@ -2433,13 +2544,12 @@ class AppShell:
             QTimer.singleShot(0, lambda message=str(exc): bridge.done.emit(False, message))
 
     # ------------------------------------------------------------ 余额
-    def show_balance(self, parent=None) -> None:
-        win = parent or (self.instance.win if self.instance is not None else None)
-        if win is None or self._balance_busy or not win.isVisible():
-            return
-        now = time.monotonic()
-        # 余额缓存绑定 provider 身份（id + base_url + key 摘要）：同地址不同账号也不串号；
-        # 摘要不可逆推原 key，不落敏感信息。
+    def _balance_query_context(self):
+        """余额查询上下文 ``(provider, provider_key)``。
+
+        余额缓存绑定 provider 身份（id + base_url + key 摘要）：同地址不同账号也不
+        串号；摘要不可逆推原 key，不落敏感信息。
+        """
         import hashlib
         settings = self.config.chat_settings()
         provider = settings.active_config
@@ -2450,6 +2560,28 @@ class AppShell:
             str(provider.base_url or ''),
             key_digest,
         ])
+        return provider, provider_key
+
+    def show_click_info(self, parent=None) -> None:
+        """点击桌宠的统一入口：按开关派发余额 / 订阅额度 / 两者合并。
+
+        余额能力再按 ``enable_chat`` 判一次（无聊天变体没有 provider 概念），
+        订阅额度走本机凭据、不依赖聊天能力。
+        """
+        want_balance = bool(self.config.get("click_show_balance", False)) \
+            and getattr(self, "enable_chat", True)
+        want_quota = self._quota_enabled()
+        if want_quota:
+            self.show_combined(parent, force_balance=want_balance)
+        elif want_balance:
+            self.show_balance(parent)
+
+    def show_balance(self, parent=None) -> None:
+        win = parent or (self.instance.win if self.instance is not None else None)
+        if win is None or self._balance_busy or not win.isVisible():
+            return
+        now = time.monotonic()
+        provider, provider_key = self._balance_query_context()
         if self._balance_cache is not None and now - self._balance_cache[0] < 30.0 \
                 and self._balance_cache[2] == provider_key:
             self._update_island_balance(self._balance_cache[1])
@@ -2494,6 +2626,75 @@ class AppShell:
                 self._quiet_balance_busy = False
             else:
                 self._balance_busy = False
+
+    # ------------------------------------------------------------ 订阅额度
+    def show_combined(self, parent=None, *, force_balance: bool = False) -> None:
+        """订阅额度查询（可选带余额）：一次后台查询，只冒一个合成气泡。
+
+        - ``force_balance`` 供自动刷新复用：余额照旧刷新，额度一并查；
+        - 30s 内命中缓存不发请求（连点不产生额外网络开销）；
+        - 任一段失败只降级该段，另一段照常显示。
+        """
+        win = parent or (self.instance.win if self.instance is not None else None)
+        if win is None or getattr(self, "_info_busy", False) or not win.isVisible():
+            return
+        want_quota = self._quota_enabled()
+        want_balance = (force_balance or bool(self.config.get("click_show_balance", False))) \
+            and getattr(self, "enable_chat", True)
+        if not want_quota and not want_balance:
+            return
+        self._info_busy = True
+        QTimer.singleShot(0, lambda: win.show_bubble('让我看看额度…', duration_ms=6000))
+        bridge = _InfoBridge(win, owner=self)
+        self._info_bridge = bridge
+        try:
+            threading.Thread(
+                target=self._info_worker, args=(bridge,),
+                kwargs={"want_balance": want_balance, "want_quota": want_quota},
+                daemon=True, name='pet-quota',
+            ).start()
+        except Exception as exc:  # noqa: BLE001 - 启动失败也必须释放忙状态
+            self._info_busy = False
+            error_message = f'额度查询失败：{exc}'
+            QTimer.singleShot(0, lambda message=error_message: bridge.done.emit(False, message))
+
+    def _info_worker(self, bridge, *, want_balance: bool, want_quota: bool) -> None:
+        """后台线程：顺序取两段（各自独立成败），失败也把已有段落带回去。"""
+        balance_payload = None
+        snapshot = None
+        balance_error = None
+        quota_error = None
+        now = time.monotonic()
+        if want_balance:
+            try:
+                provider, provider_key = self._balance_query_context()
+                cached = self._balance_cache
+                if cached is not None and now - cached[0] < 30.0 and cached[2] == provider_key:
+                    balance_payload = cached[1]
+                elif not provider.api_key:
+                    balance_error = "未配置 API Key（设置 → 聊天）"
+                else:
+                    info = balance_mod.fetch_balance(
+                        provider.base_url, provider.api_key, verify_ssl=provider.verify_ssl)
+                    balance_payload = {"text": balance_mod.format_balance(info), "info": info}
+                    self._balance_cache = (time.monotonic(), balance_payload, provider_key)
+                    self._write_balance_file_cache(balance_payload, provider_key)
+            except Exception as exc:  # noqa: BLE001 - 余额段失败不影响额度段
+                balance_error = f'余额查询失败：{exc}'
+        if want_quota:
+            try:
+                cached = getattr(self, "_quota_cache", None)
+                if cached is not None and now - cached[0] < 30.0:
+                    snapshot = cached[1]
+                else:
+                    snapshot = quota_mod.fetch_quota()
+                    self._quota_cache = (time.monotonic(), snapshot)
+            except Exception as exc:  # noqa: BLE001 - 额度段失败不影响余额段
+                quota_error = f'额度查询失败：{exc}'
+        try:
+            bridge.done.emit(True, (balance_payload, snapshot, balance_error, quota_error))
+        finally:
+            self._info_busy = False
 
     def _read_balance_file_cache(self, provider_key: str = '') -> dict | None:
         """读取跨实例共享的余额缓存（30s 内有效，且必须是同一 provider 的缓存）。

@@ -200,6 +200,9 @@ def build_pet_controls(host) -> None:
     if host.include_ai:
         host.click_balance_check = ToggleSwitch(host)
         host.click_balance_check.setChecked(bool(host.config.get("click_show_balance", False)))
+    # 订阅额度走本机凭据直连，不依赖聊天/API Key，因此任何变体都提供该开关。
+    host.click_quota_check = ToggleSwitch(host)
+    host.click_quota_check.setChecked(bool(host.config.get("click_show_quota", False)))
     host.click_self_talk_check = ToggleSwitch(host)
     host.click_self_talk_check.setChecked(bool(host.config.get("click_show_self_talk", False)))
     host.click_self_talk_speak_check = ToggleSwitch(host)
@@ -561,6 +564,19 @@ def build_pet_controls(host) -> None:
 
 
 # ------------------------------------------------------------ 灵动岛联动控制器
+
+
+def save_click_provider_toggles(dialog) -> None:
+    """写回「点击显示余额 / 点击显示订阅额度」两个开关。
+
+    余额开关只在 include_ai 变体里存在，额度开关始终存在，因此统一按
+    ``getattr`` 探测；两个键各自独立，互不覆盖。
+    """
+    for attr, key in (("click_balance_check", "click_show_balance"),
+                      ("click_quota_check", "click_show_quota")):
+        check = getattr(dialog, attr, None)
+        if check is not None:
+            dialog.config.set(key, check.isChecked())
 
 
 def _update_island_controls(host, enabled: bool) -> None:

@@ -711,6 +711,9 @@ class Config:
             "idle_low_fps_enabled": False,  # 闲置降帧（灰度默认关）：长时间无交互时动画隔帧呈现
             "idle_low_fps_threshold": 30.0,  # 闲置阈值（秒）：超过该时长无交互且窗口可见才降帧
             "click_show_balance": False,  # 点击显示 DeepSeek 余额
+            # 点击显示订阅额度（ChatGPT Plus/Pro 窗口用量）：默认关，独立开关，
+            # 与"点击显示余额"互不影响；复用 balance_refresh_minutes 刷新间隔。
+            "click_show_quota": False,
             "click_show_self_talk": False,  # 点击随机显示自定义自言自语
             "self_talk_speak_enabled": True,  # 点击自言自语同句朗读（复用语音报时音频通道）
             "self_talk_voice_precache_enabled": False,  # 台词/点击绑定本地语音预缓存（需本机 TTS 服务，默认关）
@@ -973,6 +976,7 @@ class Config:
             "idle_low_fps_enabled",
             "idle_low_fps_threshold",
             "click_show_balance",
+            "click_show_quota",
             "click_show_self_talk",
             "self_talk_speak_enabled",
             "self_talk_voice_precache_enabled",

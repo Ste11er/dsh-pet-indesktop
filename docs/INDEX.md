@@ -71,6 +71,7 @@
 | [`SETTINGS-REDESIGN-UI-ACCEPTANCE.md`](SETTINGS-REDESIGN-UI-ACCEPTANCE.md) | 设置页逐页 UI 验收记录：窗口矩阵（尺寸×明暗）与最终保留的截图证据清单。 | 修改设置页视觉后需要对照既有验收矩阵重跑、或需要定位合理截图证据路径时。 |
 | [`SETTINGS-REPORT-PROBABILITY-2026-09-10.md`](SETTINGS-REPORT-PROBABILITY-2026-09-10.md) | 事件汇报概率门（`report_gates`）的设置变更记录：8 个门的准入契约（setting_id / domain / 搜索别名）与准出证据。 | 增删/调整汇报概率门、或按 `SETTINGS-CHANGE-GATES.md` 需要一份设置变更契约的书写范例时。 |
 | [`BUGFIX-AND-FEATURES-2026-08-24.md`](BUGFIX-AND-FEATURES-2026-08-24.md) | 一次性开发记录：气泡显示不抢输入焦点、EXE 图标裁剪、右键菜单「生小肥鱼」独立进程启动、菜单图标补齐。 | 改窗口激活/焦点策略（`WS_EX_NOACTIVATE` 类问题）、图标生成（`scripts/make_icon.py`）或子进程启动路径时；Linux/X11 侧另见 [`KDE-TASKBAR-DEMANDS-ATTENTION-2026-09-22.md`](KDE-TASKBAR-DEMANDS-ATTENTION-2026-09-22.md)。 |
+| [`CHATGPT-PLUS-QUOTA-2026-09-28-RESEARCH.md`](CHATGPT-PLUS-QUOTA-2026-09-28-RESEARCH.md) | 订阅额度（Plus/Pro 窗口用量）接入研究：上游 clawd-on-desk 的被动遥测为何在本机渲染不出数据、主动端点与实测响应结构、从上游采纳的 7 条规则、隐私/品牌边界与设置项入场清单。 | 改动 `pet/chatgpt_quota.py`、「点击显示订阅额度」开关、额度气泡/灵动岛额度行；或想复核"为什么不代刷 token / 不展示 credits"时。 |
 
 ---
 

@@ -40,6 +40,9 @@ _STRIP_THICKNESS = 16
 _STRIP_SIDE = 64  # 左右停靠时竖条的长度
 _CARD_WIDTH = 340
 _CARD_HEIGHT = 148
+# 订阅额度行（默认隐藏）占位高度：仅在额度行可见时加进卡片高度，
+# 让关闭该功能的用户保持与旧版完全一致的卡片尺寸。
+_QUOTA_ROW_HEIGHT = 18
 _CARD_AUTO_COLLAPSE_MS = 15_000
 _DOCK_BACK_MS = 800
 _BREATHE_AFTER_EVENT_S = 5.0
@@ -179,6 +182,7 @@ class DynamicIsland(QWidget):
         self._press_global: QPoint | None = None
         self._balance_tier_text = "余额峰谷 --"
         self._balance_text = "余额 --"
+        self._quota_text = ""  # 订阅额度行：空串 = 整行隐藏（卡片高度也随之回落）
         self._pet_visible = True
         self._agent_active = False
         self._last_message = ""
@@ -299,6 +303,12 @@ class DynamicIsland(QWidget):
     def set_balance_info(self, tier_text: str, balance_text: str) -> None:
         self._balance_tier_text = str(tier_text or "余额峰谷 --")
         self._balance_text = str(balance_text or "余额 --")
+        self._sync_card_labels()
+        self._refresh()
+
+    def set_quota_info(self, text: str) -> None:
+        """订阅额度卡片行：空串 = 隐藏整行，并回收为它预留的卡片高度。"""
+        self._quota_text = str(text or "")
         self._sync_card_labels()
         self._refresh()
 
@@ -442,11 +452,12 @@ class DynamicIsland(QWidget):
         layout.setSpacing(4)
         self._card_balance_label = QLabel(self._card_box)
         self._card_tier_label = QLabel(self._card_box)
+        self._card_quota_label = QLabel(self._card_box)
         self._card_message_label = QLabel(self._card_box)
         self._card_message_label.setWordWrap(True)
         self._card_message_label.setMaximumHeight(34)
         for label in (self._card_balance_label, self._card_tier_label,
-                      self._card_message_label):
+                      self._card_quota_label, self._card_message_label):
             layout.addWidget(label)
         layout.addSpacing(2)
         button_row = QHBoxLayout()
@@ -474,6 +485,7 @@ class DynamicIsland(QWidget):
         self._card_balance_label.setStyleSheet(
             f"color: {primary_hex}; font-weight: bold; font-size: 14px;")
         self._card_tier_label.setStyleSheet(f"color: {secondary_hex}; font-size: 11px;")
+        self._card_quota_label.setStyleSheet(f"color: {secondary_hex}; font-size: 11px;")
         self._card_message_label.setStyleSheet(f"color: {secondary_hex}; font-size: 11px;")
         # 按钮：圆角 8px、描边跟随主题色、悬停加亮；不用系统默认灰按钮
         button_style = (
@@ -488,6 +500,9 @@ class DynamicIsland(QWidget):
             btn.setStyleSheet(button_style)
         self._card_balance_label.setText(self._balance_text)
         self._card_tier_label.setText(self._balance_tier_text)
+        self._card_quota_label.setText(self._quota_text)
+        # 额度未启用/无数据时整行隐藏：布局自动跳过隐藏控件，卡片高度随之回落
+        self._card_quota_label.setVisible(bool(self._quota_text))
         message = self._last_message or "（暂无最近消息）"
         # 摘要最多两行，超出省略（标签限高 34px 配合 wordWrap）
         metrics = self._card_message_label.fontMetrics()
@@ -817,7 +832,10 @@ class DynamicIsland(QWidget):
     def _rest_size(self) -> QSize:
         width = self._capsule_width()
         if self._mode == "expanded":
-            return QSize(max(width, _CARD_WIDTH), _CAPSULE_HEIGHT + _CARD_HEIGHT)
+            # 额度行可见时多留一行；关闭该功能的用户卡片尺寸与旧版完全一致。
+            extra = _QUOTA_ROW_HEIGHT if self._quota_text else 0
+            return QSize(max(width, _CARD_WIDTH),
+                         _CAPSULE_HEIGHT + _CARD_HEIGHT + extra)
         return QSize(width, _CAPSULE_HEIGHT)
 
     def _apply_fixed_size(self) -> None:
