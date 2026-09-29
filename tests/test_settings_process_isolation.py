@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from unittest import mock
 
-from PySide6.QtCore import QLockFile, QRect, QTimer
+from PySide6.QtCore import QLockFile, QObject, QRect, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QDialog
 
 from pet import config as config_mod
@@ -278,6 +278,145 @@ def test_open_settings_process_skips_when_lock_already_held(tmp_path):
         shell._teardown_config_watcher()
     assert launched == []
     assert shell._settings_child_active is True
+
+
+def test_open_settings_process_asks_existing_window_to_raise(tmp_path, monkeypatch):
+    """单实例 + 锁已被持有：不拉起第二份，但要请已有窗口到前台。
+
+    否则窗口被别的应用压在后面时，用户看到的就是"点设置没反应"
+    （2026-09-29 实机：KWin 下设置窗被 WPS/ChatGPT 盖住）。
+    """
+    import pet.app as app_mod
+
+    config = Config(base=tmp_path)
+    config.dir.mkdir(parents=True, exist_ok=True)
+    shell = _bare_shell(config)
+    launched = []
+    shell._launch_settings_process = lambda instance=None: launched.append(1) or True
+    asked = []
+    monkeypatch.setattr(app_mod, "raise_existing_settings",
+                        lambda config_dir, **kwargs: asked.append(config_dir) or True)
+    held = QLockFile(str(config.dir / "settings.lock"))
+    assert held.tryLock(0)
+    try:
+        assert shell.open_settings_process(object()) is True
+    finally:
+        held.unlock()
+        shell._teardown_config_watcher()
+    assert launched == []
+    assert asked == [config.dir]
+    assert shell._settings_child_active is True
+
+
+def test_open_settings_process_tolerates_raise_failure(tmp_path, monkeypatch):
+    """唤起失败/异常不许改变单实例语义：仍返回 True，不回退开第二扇窗。"""
+    import pet.app as app_mod
+
+    config = Config(base=tmp_path)
+    config.dir.mkdir(parents=True, exist_ok=True)
+    shell = _bare_shell(config)
+    launched = []
+    shell._launch_settings_process = lambda instance=None: launched.append(1) or True
+
+    def _boom(_config_dir, **_kwargs):
+        raise RuntimeError("通道炸了")
+
+    monkeypatch.setattr(app_mod, "raise_existing_settings", _boom)
+    held = QLockFile(str(config.dir / "settings.lock"))
+    assert held.tryLock(0)
+    try:
+        assert shell.open_settings_process(object()) is True
+    finally:
+        held.unlock()
+        shell._teardown_config_watcher()
+    assert launched == []
+    assert shell._settings_child_active is True
+
+
+def test_exec_settings_unlocks_even_if_teardown_raises(tmp_path, monkeypatch):
+    """收尾异常不许吞掉 lock.unlock()：残留锁会让「点设置」永远打不开。"""
+    import pet.__main__ as entry
+    import pet.modern_settings_dialog as settings_mod
+    import pet.settings_channel as channel_mod
+    import pet.settings_parent_guard as guard_mod
+
+    _qapp()
+    monkeypatch.setattr(settings_mod, "ModernSettingsDialog", _AutoCloseDialog)
+    _AutoCloseDialog.captured = {}
+
+    class _BadServer(QObject):
+        raise_requested = Signal()
+
+        def __init__(self, config_dir, parent=None):
+            super().__init__(parent)
+
+        def start(self):
+            return True
+
+        def stop(self):
+            raise RuntimeError("C++ 对象已被对话框自毁带走")
+
+    class _BadWatch:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            raise RuntimeError("C++ 对象已被对话框自毁带走")
+
+    monkeypatch.setattr(channel_mod, "SettingsRaiseServer", _BadServer)
+    monkeypatch.setattr(guard_mod, "ParentWatch", _BadWatch)
+    config = Config(base=tmp_path)
+    assert entry._run_settings(config) == 0
+    assert not (config.dir / "settings.lock").exists()
+
+
+def test_exec_settings_wires_raise_channel_and_parent_watch(tmp_path, monkeypatch):
+    """--settings 主体：装唤起通道 + 父进程看门狗，退出时都收干净。"""
+    import pet.__main__ as entry
+    import pet.modern_settings_dialog as settings_mod
+    import pet.settings_channel as channel_mod
+    import pet.settings_parent_guard as guard_mod
+
+    _qapp()
+    monkeypatch.setattr(settings_mod, "ModernSettingsDialog", _AutoCloseDialog)
+    _AutoCloseDialog.captured = {}
+    calls: dict[str, list] = {"server": [], "watch": []}
+
+    class _FakeServer(QObject):
+        raise_requested = Signal()
+
+        def __init__(self, config_dir, parent=None):
+            super().__init__(parent)
+            calls["server"].append(config_dir)
+
+        def start(self):
+            calls["server"].append("started")
+            return True
+
+        def stop(self):
+            calls["server"].append("stopped")
+
+    class _FakeWatch:
+        def __init__(self, on_parent_gone, **kwargs):
+            calls["watch"].append(on_parent_gone)
+
+        def start(self):
+            calls["watch"].append("started")
+
+        def stop(self):
+            calls["watch"].append("stopped")
+
+    monkeypatch.setattr(channel_mod, "SettingsRaiseServer", _FakeServer)
+    monkeypatch.setattr(guard_mod, "ParentWatch", _FakeWatch)
+    config = Config(base=tmp_path)
+    assert entry._run_settings(config) == 0
+    assert calls["server"] == [config.dir, "started", "stopped"]
+    # 父死走 dialog.reject：与按 Esc/关窗同一条落盘路径（不丢未保存改动）
+    assert calls["watch"][0].__name__ == "reject"
+    assert calls["watch"][1:] == ["started", "stopped"]
 
 
 def test_open_settings_process_disabled_by_config(tmp_path):

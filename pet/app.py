@@ -61,6 +61,7 @@ from .todo_reminder import TodoReminderService
 from .voice_chime_service import VoiceChimeService
 from .dsh_state import DshStateTracker
 from .persona_phrases import PhrasePicker
+from .settings_channel import raise_existing_settings
 
 
 _persona_pickers = weakref.WeakKeyDictionary()
@@ -1503,8 +1504,11 @@ class AppShell:
         self._install_config_watcher()
         if self._settings_process_running():
             # 单实例：已有设置进程在跑（可能不是本主进程拉起的）→ 不再拉起，
-            # 但仍按"设置开着"抑制气泡并盯住它的锁文件。
+            # 但仍按"设置开着"抑制气泡并盯住它的锁文件。窗口可能被别的应用压在
+            # 后面（实测 2026-09-29：KWin 下被 WPS/ChatGPT 盖住），只记日志的话
+            # 用户在界面上看到的就是"点设置没反应"，所以顺手请它把窗口叫到前台。
             logging.info("独立设置进程已在运行，不重复拉起")
+            self._raise_existing_settings_process()
             self._mark_settings_child(True)
             return True
         if self._settings_launch_pending():
@@ -1541,6 +1545,21 @@ class AppShell:
             logging.warning("设置进程锁探测失败且锁文件不存在：%s", lock_path)
             return False
         return True
+
+    def _raise_existing_settings_process(self) -> bool:
+        """请已有设置进程把窗口叫到前台（best-effort：失败只记日志）。
+
+        绝不因为唤起失败就回退去开第二扇窗：单实例语义是刻意的（设置项即时落盘，
+        两扇窗会互相覆盖），这里只补"窗口被压在后面时用户以为没反应"这一种情况。
+        """
+        try:
+            ok = bool(raise_existing_settings(self.config.dir))
+        except Exception:
+            logging.exception("请已有设置进程唤起窗口失败")
+            return False
+        if ok:
+            logging.info("已请已有设置窗口到前台")
+        return ok
 
     def _settings_launch_pending(self) -> bool:
         """刚拉起独立设置进程的启动窗口（子进程建锁前的连点保护）。"""
@@ -1890,6 +1909,10 @@ class AppShell:
         """订阅 DSH 统一状态变化（d04fc10 原设计，post-merge 丢失后恢复）。
 
         - offline：DSH 断开/重启，审批/问题等阻塞交互必然失效，收掉常驻气泡；
+        - waiting_approval / waiting_question：DSH 在等主人处理，挂常驻提醒
+          （本机 DSH 0.1.7 已无可点击回写通道，只读提醒是唯一可见来源）；
+        - 其余状态（working/success/error/idle）：只收掉可能挂着的等待提醒，
+          不改动"working 不转发"的既有契约（legacy 监视器负责常规呈现）；
         - thinking：legacy AgentStatus 基线只有 working/idle（bridge 设计），
           thinking 由 dsh_state 收敛后经联动管线补思考气泡/动画——对话开始的
           稳定触发点之一（与真人消息双保险，呈现管线自带同态去重）。
@@ -1902,10 +1925,19 @@ class AppShell:
             if alm is not None and hasattr(alm, "dismiss_all_interactions"):
                 alm.dismiss_all_interactions()
             return
+        if to_state in ("waiting_approval", "waiting_question"):
+            alm = self._dsh_link_manager()
+            if alm is not None:
+                alm.notify_dsh_state(to_state)
+            return
         if to_state == "thinking":
             alm = self._dsh_link_manager()
             if alm is not None:
                 alm.notify_dsh_state("thinking")
+            return
+        alm = self._dsh_link_manager()
+        if alm is not None and hasattr(alm, "dismiss_dsh_waiting"):
+            alm.dismiss_dsh_waiting()
 
     def _on_dsh_user_message(self, session_id: str, text: str) -> None:
         """真人消息 = 对话开始：与状态边沿竞态解耦的稳定触发点。

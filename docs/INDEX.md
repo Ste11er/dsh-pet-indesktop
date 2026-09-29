@@ -147,6 +147,7 @@
 | [`PR-REPORT-music-lyric-align-2026-09-22.md`](PR-REPORT-music-lyric-align-2026-09-22.md) | 歌词对齐（`music_lyric_align`）PR 报告：手动校准快进/半途起播、会话选择与会话粘滞、`advance` 与 `line_now` 的分工；含性能实测表与网易云「不上报进度」的实机复现记录。 | 改歌词位置来源/对齐入口/多播放器会话选择时；或需要「为什么不做自动识别快进」的排查证据（桌面歌词不可读探针）时。**「对齐菜单点不动 / 歌词整首不显示」看 [`PR-REPORT-MUSIC-LYRIC-SYSTEM-PROXY-2026-09-22.md`](PR-REPORT-MUSIC-LYRIC-SYSTEM-PROXY-2026-09-22.md)**（估算位置冒充真值 + 系统代理拖死取词两处修复）。 |
 | [`PR-REPORT-LOCAL-WIP-BATCH-2026-09-22.md`](PR-REPORT-LOCAL-WIP-BATCH-2026-09-22.md) | 本地 WIP 批次 PR 报告：交付证据纪律（三份证据 + 机器化校验）、`build_onedir.ps1` 的 Qt 绑定排他（不修则构建被 PyInstaller 中止）、产物 TTS 自检脚本（真产物假红 → 修掉）、`character_head_box()` 与 shenshen 头部框数据。 | 改 `scripts/build_onedir.ps1` 的排除清单、`scripts/verify_bundle_tts.py` 的闭包判定、`pet/catalog.py` 的 `body_box`/`head_box` 取值，或要写新的 PR 报告（含三个必备章节的实例）时。 |
 | [`PR-REPORT-MUSIC-LYRIC-SYSTEM-PROXY-2026-09-22.md`](PR-REPORT-MUSIC-LYRIC-SYSTEM-PROXY-2026-09-22.md) | 歌词取词被系统代理拖死 + 网易云「歌词对齐」被误关的 PR 报告：系统代理下三源 20~41s 全超时 → 每首未缓存曲目「0 行/9.00s」，改直连后 1.27s/62 行；估算位置不再冒充「播放器上报的真值」。 | 改歌词取词的网络出口/超时/失败日志时；或排查「歌词突然全都没有」「歌曲只有歌名没有词」「歌词对齐菜单点不动」这类反馈时（含现场日志判读口径）。**影响面与推荐设置见 [`NETWORK-PROXY-AND-VPN-2026-09-22.md`](NETWORK-PROXY-AND-VPN-2026-09-22.md)**。 |
+| [`PR-REPORT-DSH-LINK-VISIBILITY-2026-09-29.md`](PR-REPORT-DSH-LINK-VISIBILITY-2026-09-29.md) | DSH 联动「看得见」PR 报告：「没反应」的五个根因（插件没装 / 开关只在右键菜单 / `app.py` 只转发 thinking / 概率门随机吞气泡 / DSH 0.1.7 删掉 mux 契约）、新增纯探测模块与五态状态行（`showEvent` 自刷新）、审批/提问只读常驻提醒、计划台账机制；含实测性能表与探针 6/6 证据。 | 改 DSH 联动呈现/状态探测/审批提醒时，或排查「桌宠对 DSH 没有反应」「装没装/开没开/要不要重启」时；也是 `docs/plans/` 台账与收尾规则的落地实例。 |
 
 ---
 
@@ -160,6 +161,8 @@
 | [`CHANGELOG-DEV-SINCE-v4.1.0-2026-09-09.md`](CHANGELOG-DEV-SINCE-v4.1.0-2026-09-09.md) | 自 v4.1.0 以来开发版变更汇总：按合入顺序的主线演进表、性能线/结构线细节，含"实现后被回滚/取代"的口径说明。 | 需要逐 PR 粒度的开发期变更脉络、或核对"某功能是否真的上线"（第六节列了被取代项）时。 |
 | [`UPSTREAM-INTEGRATION-2026-08-26.md`](UPSTREAM-INTEGRATION-2026-08-26.md) | 上游合并与新版 UI 收敛记录：合并策略、维护边界（菜单/设置单一路径、两套聊天窗口互不覆盖）与 macOS 验收产物。 | 追溯"为什么只维护新版菜单/设置、经典聊天窗口为何保留"这类维护边界决策时。 |
 | [`OPTIMIZATION_CHECKLIST.md`](OPTIMIZATION_CHECKLIST.md) | 性能优化复核清单（自带「历史快照，请勿按现状逐条执行」警示；`--instance`/`PetApp` 已被 `--slot`/`AppShell` 取代）。 | 只作为"当时怎么做性能复核"的模板参考；**不要按现状逐条执行**。 |
+| [`docs/plans/NEXT.md`](plans/NEXT.md) | 跨任务计划台账（待办池）：本轮跳过/延后且经用户确认的项，逐条写「为什么当时跳过 / 证据 / 下一步」，与 `.scratch/<feature-slug>/HANDOFF.md` 断点互链。 | **开始新一轮工作前、或收尾列跳过项时必读**（`AGENTS.md` "Plan ledger and session close-out"）；判断某件事该进断点还是进计划池时也看这里。 |
+| [`docs/plans/DONE.md`](plans/DONE.md) | 计划台账的已完成档案（append-only）：一条计划项完成时从 `NEXT.md` 删除，并在本表追加一行（完成日期 + 证据）。 | **关闭 `NEXT.md` 里的计划项时必读**；核对某计划项是否已交付、或排查 `NEXT.md` / `DONE.md` 是否同时存在同一条时。 |
 
 ---
 

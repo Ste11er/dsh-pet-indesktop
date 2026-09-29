@@ -164,6 +164,23 @@ For unfinished multi-ticket work, read and refresh the feature's
 `.scratch/<feature-slug>/HANDOFF.md` before ending or resuming work. Keep the
 exact breakpoint there; see `docs/agents/handoff.md`.
 
+### Plan ledger and session close-out
+
+台账是 `docs/plans/NEXT.md`（待办池）与 `docs/plans/DONE.md`（已完成档案），
+以下为硬要求：
+
+- **每轮工作收尾前**（给出最终答复之前）：若本轮有跳过/延后/未做的项，必须
+  **显式加载 `grilling` skill**，并按它的格式做**恰好一轮**「跳过项 → 是否入
+  计划」追问（每项附推荐答案）；用户确认的项写入 `docs/plans/NEXT.md`（格式见
+  该文件头部）。本轮若没有跳过项，用一行写明「本轮无跳过项（未新增计划）」，
+  **不得沉默略过**。
+- **计划项完成时**：由**完成它的同一个 agent 在同一轮内**从 `NEXT.md` 删除，
+  并在 `docs/plans/DONE.md` 追加一行（完成日期 + 证据链接）。同一项不得同时
+  存在于两个文件。
+- **计划项 ≠ 断点**：`.scratch/<feature-slug>/HANDOFF.md` 记当前任务断点
+  （必须当场可恢复），`docs/plans/NEXT.md` 记跨任务未来工作；两处互链。
+- **台账保持小**：过时或不再需要的条目要删掉并说明，而不是无限堆积。
+
 ## Context pointers
 
 找文档先查 `docs/INDEX.md`（全文档入口索引：每条一句话 + 何时必读）；
@@ -203,3 +220,5 @@ exact breakpoint there; see `docs/agents/handoff.md`.
   mirror-symmetrized): the stable body rect used as the placement/edge-clamp
   anchor (`pet/catalog.py character_body_box`); measure it at alpha≥128 to
   match the mask/visual edge, and omit it to fall back to full-canvas behavior.
+- Read `docs/plans/NEXT.md` when starting new work or after finishing a work
+  round (see "Plan ledger and session close-out").

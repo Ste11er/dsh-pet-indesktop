@@ -37,16 +37,53 @@ def _exec_settings(app, config, *, include_ai: bool = True) -> int:
         logging.getLogger(__name__).info("已有设置进程持有 settings.lock，本次退出")
         return 0
     from .modern_settings_dialog import ModernSettingsDialog
+    from .settings_channel import SettingsRaiseServer
+    from .settings_parent_guard import ParentWatch
 
     # parent=None + standalone=True：没有桌宠窗口可依附，试听/避让由
     # pet.settings_standalone 提供进程内最小宿主。
     dialog = ModernSettingsDialog(config, parent=None, include_ai=include_ai, standalone=True)
+    # 父进程（桌宠）一消失就自退：startDetached 拉起的子进程本来会被留下当孤儿，
+    # 一直占着 settings.lock——那会让此后每次点设置都"没反应"，而且桌宠据此把气泡
+    # 全抑制成"设置开着"，看起来就像桌宠彻底不和 DSH 联动了（实测见模块注释）。
+    # 走 dialog.reject：和用户按 Esc/关窗同一条落盘路径，不丢未保存的改动。
+    watch = ParentWatch(dialog.reject, parent=dialog)
+    watch.start()
+    # 主进程再点"设置"时请本进程把窗口叫到前台（单实例下这是唯一能让用户看见的路）。
+    channel = SettingsRaiseServer(config.dir, parent=dialog)
+    channel.raise_requested.connect(lambda: _raise_dialog(dialog))
+    channel.start()
     dialog.finished.connect(lambda _result: app.quit())
     dialog.show()
     try:
         return app.exec()
     finally:
+        # 对话框 WA_DeleteOnClose 会把挂在它下面的通道/看门狗对象一起带走，收尾
+        # 异常绝不能挡住 lock.unlock()——否则残留锁会把后续设置入口堵死。
+        for teardown in (watch.stop, channel.stop):
+            try:
+                teardown()
+            except Exception:
+                logging.getLogger(__name__).exception("设置进程收尾失败")
         lock.unlock()
+
+
+def _raise_dialog(dialog) -> None:
+    """把已在运行的设置窗口叫到前台（最小化则恢复）；失败只记日志。"""
+    import logging
+
+    from PySide6.QtCore import Qt
+
+    try:
+        state = dialog.windowState()
+        if state & Qt.WindowState.WindowMinimized:
+            dialog.setWindowState(state & ~Qt.WindowState.WindowMinimized)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        logging.getLogger(__name__).info("收到唤起请求：已把设置窗口提到前台")
+    except Exception:
+        logging.getLogger(__name__).exception("唤起设置窗口失败")
 
 
 def _settings_instance_id(argv) -> str:

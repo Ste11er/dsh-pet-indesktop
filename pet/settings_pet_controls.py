@@ -12,6 +12,7 @@ import sys
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
@@ -40,6 +41,7 @@ from .config import (
     _float_or_default,
 )
 from .context_menus.icons import vector_widget_icon
+from .dsh_link_status import link_enabled_from_config, probe_dsh_link
 from .fun_image_popup import oijingjing_image_path, resolve_fun_asset
 from .persona_phrases import PUBLIC_DIALOGUE_EVENTS, phrase_keys
 from .persona_template import build_persona_template
@@ -787,3 +789,60 @@ def _import_dialogue_template_json(host) -> None:
             }
     host.dialogue_template_import_edit.clear()
     QMessageBox.information(host, "导入成功", "已导入全部弹窗内容模板；点击“保存并退出”后生效。")
+
+
+class DshLinkStatusLabel(QLabel):
+    """DSH 联动状态自刷新标签（未安装 / 未启用 / DSH 未运行 / 装了没收到事件 / 已连接）。
+
+    设置对话框是**应用级缓存**的（``pet/app.py`` 只建一次、之后反复 show），
+    所以状态不能只在装配时算一次：每次本标签被显示（打开设置 / 切到该页 /
+    展开该组）都重算。否则「装上插件 → 重启 DSH → 再打开设置」看到的还是旧
+    状态——那正是主人报告的那类沉默。``showEvent`` 兜住所有显示路径，
+    dialog 侧不必再加刷新钩子（那边每行都算行数预算）。
+    """
+
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self._config = config
+        self.setObjectName("dshLinkStatusLabel")
+        self.setWordWrap(True)
+        self.refresh()
+
+    def refresh(self):
+        """重算并显示当前状态；返回 DshLinkStatus 供测试/调用方断言。"""
+        status = probe_dsh_link(
+            self._config.dir, link_enabled=link_enabled_from_config(self._config)
+        )
+        self.setText(f"{status.label}。{status.hint}" if status.hint else status.label)
+        self.setProperty("dshLinkState", status.state.value)
+        return status
+
+    def showEvent(self, event):  # noqa: N802 - Qt 命名
+        super().showEvent(event)
+        self.refresh()
+
+
+def add_dsh_status_group(box, dialog) -> list[SettingRow]:
+    """把「DSH 联动状态」行挂进「Agent 联动」折叠框，返回行对象供调用方 claim。
+
+    为什么是「挂进去 + 返回行」而不是只返回行：``modern_settings_dialog.py``
+    的行数预算只余一行，调用方用一条 ``claimed.update(add_dsh_status_group(...))``
+    完成"加组 + 登记"；行定义、状态探测与自刷新都留在本模块。
+
+    这不是持久设置——没有配置键、不参与保存写回，只是把
+    ``pet/dsh_link_status.py`` 探测到的链路状态呈现出来（此前"没装 / 没重启 /
+    DSH 没跑"三种情况在界面上完全一样：都没有反应，只能人肉翻 profile 文件）。
+    """
+    label = DshLinkStatusLabel(dialog.config, dialog)
+    rows = [
+        SettingRow(
+            "dsh_link_status",
+            "DSH 联动状态",
+            "桌宠与 DeepSeek Harness 的联动是否真的生效；未安装 / 未启用 / "
+            "DSH 未运行 / 已装但没收到事件（需重启 DSH）会分别写明。",
+            label,
+            stacked=True,
+        )
+    ]
+    box.add_group("联动状态", rows)
+    return rows

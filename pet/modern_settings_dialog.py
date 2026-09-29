@@ -1853,6 +1853,7 @@ class ModernSettingsDialog(QDialog):
                        "仅 DeepSeek 提供余额接口；余额精度为分，不足 ¥0.01 的消耗测不出。",
                        self.agent_cost_check),
         ]
+        claimed.update(settings_pet_controls.add_dsh_status_group(agent_box, self))
         agent_box.add_group("提示音效", claim_prefix("agent_sound_"))
         agent_box.set_expanded(True)
         self.agent_link_box = agent_box

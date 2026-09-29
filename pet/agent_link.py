@@ -141,6 +141,22 @@ def _which(name: str) -> str | None:
 DSH_PLUGIN_NAME = "@dsh-pet/bridge"
 DSH_PROFILE_HOME = Path(os.environ.get("DSH_HOME", str(Path.home() / ".dsh")))
 
+# DSH「阻塞等待主人处理」状态 → 常驻提醒文案（标题, 副标题）。
+#
+# 为什么不走可点击审批气泡：本机 DSH 0.1.7-rc.2 已删除桥接插件依赖的
+# /api/events.mux 通道（只剩 /api/remote.mux），可点击回写整条链失效
+# （移植记在 docs/plans/NEXT.md）。但"审批在等你"这件事必须看得见——
+# 状态机信号是当前唯一可靠来源，于是用既有 alert 队列给出只读常驻提醒，
+# 处理完由 dismiss_dsh_waiting 自动收掉。
+#
+# 两类等待共用 alert_id：互斥替换，绝不叠出两条气泡。
+DSH_WAITING_ALERT_ID = "dsh-waiting"
+_DSH_WAITING_ALERTS: dict[str, tuple[str, str]] = {
+    "waiting_approval": ("DSH 正在等你批准", "在 DSH 界面处理；处理完这条提醒会自动收掉。"),
+    "waiting_question": ("DSH 在等你回答问题", "在 DSH 界面回答；回答完这条提醒会自动收掉。"),
+}
+
+
 # Windows 探测/安装子进程隐藏窗口（与 harness_launcher 同款）：桌宠是无控制台
 # 的 GUI 进程，node/cmd 子进程不隐藏会弹出可见终端窗口。
 _HIDDEN_KWARGS: dict = (
@@ -2437,6 +2453,8 @@ class AgentLinkManager(QObject):
         # 点「同意」只对对应那条审批生效；resolved 也按 rpcId 精确匹配关闭，
         # 绝不错放行/错关闭其他并发的审批。
         self._pending_interactions: dict[str, dict] = {}
+        # DSH 等待提醒是否挂着（见 dismiss_dsh_waiting：只在挂过时才收口）
+        self._dsh_waiting_shown = False
         self._interaction_seq = 0  # 无 rpcId 的降级提示交互本地序号
 
         # 内置 Agent 监视器由注册表装配（pet/agents/registry.py）：新增内置
@@ -2879,12 +2897,55 @@ class AgentLinkManager(QObject):
         结构性不可见——思考气泡因此从不触发。dsh_state.py 收敛出这些状态后
         经本方法喂给与监视器完全相同的主管线（去抖/节流/气泡/动画/完成检测）。
 
+        阻塞等待态（waiting_approval / waiting_question）是例外：它们不进
+        legacy 状态簿记（否则随后的 working 会被当成"新一轮开始"，见
+        _last_raw 的 busy 边沿判定），而是挂一条常驻提醒——
+        本机 DSH 只剩 /api/remote.mux，可点击回写不可用，提醒是唯一"看得见"
+        的来源；收口在 dismiss_dsh_waiting。
+
         联动未开启（DSH 监视器未运行）或代次不匹配时 no-op，绝不惊动用户。
         """
         mon = self.monitors.get("dsh")
         if mon is None or not mon._running:
             return
+        if state in _DSH_WAITING_ALERTS:
+            self._show_dsh_waiting(state)
+            return
         self._on_agent_state("dsh", state, mon._emit_gen)
+
+    def _show_dsh_waiting(self, state: str) -> None:
+        """把「DSH 在等主人处理」挂成常驻提醒（幂等：同 id 就地替换）。"""
+        text, subtitle = _DSH_WAITING_ALERTS[state]
+        self._dsh_waiting_shown = True
+        if callable(getattr(self.win, "show_alert", None)):
+            # priority=1：压过普通 watchdog(3)，但让可点击交互(0)优先；
+            # alert_type=approval 使其在设置页抑制期结束后自动恢复。
+            self._show_alert_compat(
+                text, subtitle=subtitle, sticky=True, alert_id=DSH_WAITING_ALERT_ID,
+                priority=1, alert_type="approval",
+            )
+            return
+        show_bubble = getattr(self.win, "show_bubble", None)
+        if not callable(show_bubble):
+            return
+        try:
+            show_bubble(text, subtitle=subtitle, sticky=True)
+        except TypeError:      # 老桩只认 text（与 _show_interaction_bubble 同口径）
+            show_bubble(text)
+
+    def dismiss_dsh_waiting(self) -> None:
+        """收掉 DSH 等待提醒（approval/decided、question/resolved、离线、任务结束）。
+
+        幂等且精确：没挂过提醒时不触碰任何气泡，避免误关别的 agent 的提醒。
+        """
+        if not self._dsh_waiting_shown:
+            return
+        self._dsh_waiting_shown = False
+        resolve = getattr(self.win, "resolve_alert", None)
+        if callable(resolve):
+            resolve(DSH_WAITING_ALERT_ID)
+        elif hasattr(self.win, "hide_bubble"):
+            self.win.hide_bubble()
 
     def _on_agent_state(self, agent_key: str, state: str, gen: int = 0) -> None:
         """接收 Agent 状态变更并调度桌宠动作/气泡（带去抖与节流）。"""
