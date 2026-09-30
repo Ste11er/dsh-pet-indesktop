@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
-"""后台音乐/音频播放检测（Windows）。
+"""后台音乐/音频播放检测（Windows + Linux）。
 
-通过 pycaw 读取默认音频输出设备的瞬时峰值电平：只要系统正在输出声音
-（音乐、视频、游戏等），峰值就会高于静音阈值。桌宠据此自动播放唱歌动画；
-阈值设置得较低，避免只有极微弱提示音时频繁触发。
+- **Windows**：通过 pycaw 读取默认音频输出设备的瞬时峰值电平：只要系统正在
+  输出声音（音乐、视频、游戏等），峰值就会高于静音阈值。桌宠据此自动播放
+  唱歌动画；阈值设置得较低，避免只有极微弱提示音时频繁触发。
+- **Linux**：没有 pycaw 这类系统级峰值接口（且 Wayland/PulseAudio 权限模型
+  下读输出峰值不可行），改为读 ncm-cli 播放器的共享采样线程快照
+  （``pet/ncm_player.py``，覆盖 CLI 与 TUI，2026-09-30）。快照由后台线程
+  每 3 秒刷新一次，本函数零子进程成本，可安全地在 1s 唱歌定时器里调用。
 """
 
 from __future__ import annotations
@@ -42,10 +46,7 @@ def _get_meter():
     return _meter
 
 
-def is_music_playing() -> bool:
-    """返回系统当前是否正在输出音频（Windows；其他平台恒 False）。"""
-    if sys.platform != 'win32':
-        return False
+def _is_music_playing_windows() -> bool:
     try:
         meter = _get_meter()
         if meter is None:
@@ -54,3 +55,22 @@ def is_music_playing() -> bool:
     except Exception:
         # 无 pycaw / 音频设备不可用 / COM 初始化失败时按“未播放”处理，不打扰用户
         return False
+
+
+def _is_music_playing_linux() -> bool:
+    # Linux 分支读 ncm 采样快照。绝不在 GUI 线程跑子进程（单次 ~313ms 会卡
+    # 窗口一拍）；current_playback_playing 只读内存标志，必要时拉起采样线程。
+    try:
+        from . import ncm_player
+        return bool(ncm_player.current_playback_playing())
+    except Exception:
+        return False
+
+
+def is_music_playing() -> bool:
+    """返回当前是否有音乐在放（Windows：系统音频峰值；Linux：ncm-cli 播放中）。"""
+    if sys.platform == 'win32':
+        return _is_music_playing_windows()
+    if sys.platform.startswith('linux'):
+        return _is_music_playing_linux()
+    return False

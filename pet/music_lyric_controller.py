@@ -664,9 +664,8 @@ class MusicLyricController(QObject):
 
         # 同一首歌：跟着进度走。标题常驻，歌词换行。
         if not self._tracker.has_lyrics:
-            # 还在取词：只显示常驻标题，别留空白。
-            if self._title_line and not self._bubble_blocked():
-                self._show("", title=self._title_line, force=True)
+            # 还在取词（或已判无词）：**不出任何气泡**——2026-09-30 语义变更，
+            # 「无词不出气泡」按严格口径执行，取词在途的空窗同样不显示。
             return
         self._tracker.set_paused(False, now=now)
         if self._bubble_blocked():
@@ -716,9 +715,11 @@ class MusicLyricController(QObject):
         # 取词走后台线程：轮询里绝不发网络请求。
         self._loading.add(key)
         self._pending_playback = playback
+        # ncm 来源带加密歌曲 ID：取词走精确命中，不按标题模糊搜索。
+        song_id = str(getattr(playback, "song_id", "") or "")
         threading.Thread(
             target=self._fetch_worker,
-            args=(key, title, artist),
+            args=(key, title, artist, song_id),
             name="music-lyric-fetch",
             daemon=True,
         ).start()
@@ -812,7 +813,10 @@ class MusicLyricController(QObject):
     def _announce(self, title: str, artist: str) -> None:
         """建立常驻标题（歌名固定显示在气泡第一行）。
 
-        同时充当取词期间的内容——否则切歌后会有几秒什么都不显示。
+        2026-09-30 语义变更（「无词不出气泡」）：不再在切歌瞬间把标题亮出来
+        ——有没有词要等取词结果落地才知道，空窗期不显示。这里只建立内部
+        状态（``_title_line``），首次可见显示由歌词装载后的 ``_show`` 完成。
+        纯音乐模式（instrumental）仍即时显示「正在听」——那是确定性结论。
         """
         title = str(title or "").strip()
         # 新歌重新量宽：上一首的宽度不一定合适。必须在空标题 return 之前
@@ -826,9 +830,6 @@ class MusicLyricController(QObject):
         self._instrumental = False
         self._hint = ""
         self._set_instrumental_flag(False)
-        if self._bubble_blocked():
-            return
-        self._show("", title=self._title_line, force=True)
 
     def _enter_instrumental_mode(self, lyrics) -> None:
         """纯音乐：换标题为「正在听」、显示随机提示，并**不唱**。
@@ -873,13 +874,30 @@ class MusicLyricController(QObject):
         except (AttributeError, TypeError, ValueError, OverflowError):
             return music_lyric.CACHE_LIMIT
 
-    def _fetch_worker(self, key, title: str, artist: str) -> None:
+    def _fetch_worker(self, key, title: str, artist: str, song_id: str = "") -> None:
+        """后台取词线程：ncm 来源优先精确 ID 取词，Windows/无 ID 走三源搜索。
+
+        ncm 分支**失败不做兜底**（2026-09-30 设计决策）：瞬时失败写 WARNING
+        日志、本会话这首歌当无词处理。``song_id`` 为空表示来源不是 ncm
+        （Windows SMTC），照旧走 ``music_lyric.fetch_lyrics``。
+        """
         started = time.monotonic()
-        try:
-            lyrics = music_lyric.fetch_lyrics(title, artist, cache_limit=self._cache_limit())
-        except Exception:
-            log.debug("歌词取词线程异常", exc_info=True)
-            lyrics = None
+        lyrics = None
+        via_ncm = bool(song_id)
+        if via_ncm:
+            try:
+                from . import ncm_player
+                lyrics = ncm_player.fetch_lyrics_via_ncm(song_id)
+            except Exception:
+                log.warning("ncm 取词线程异常（song_id=%s）", song_id, exc_info=True)
+                lyrics = None
+        else:
+            try:
+                lyrics = music_lyric.fetch_lyrics(
+                    title, artist, cache_limit=self._cache_limit())
+            except Exception:
+                log.debug("歌词取词线程异常", exc_info=True)
+                lyrics = None
         elapsed = time.monotonic() - started
         log.info(
             "歌词取词完成: %s - %s -> %s行%s, 耗时 %.2fs",
@@ -890,16 +908,17 @@ class MusicLyricController(QObject):
         self._lyrics_ready.emit(key, lyrics)
 
     def _on_lyrics_ready(self, key, lyrics) -> None:
-        """后台取词回到主线程：装载歌词 / 进入纯音乐模式 / 记住"查不到"。"""
+        """后台取词回到主线程：装载歌词 / 进入纯音乐模式 / 记住"查不到"。
+
+        2026-09-30 语义变更（「无词不出气泡」，用户明确要求）：查不到 / 无词
+        的歌**什么都不显示**——不再常驻「我在唱《》」标题。唱歌不受影响（照唱）。
+        """
         self._loading.discard(key)
         if key != self._current_key:
             return  # 期间已经切歌，丢弃过期结果
         if lyrics is None or (not lyrics.lines and not lyrics.instrumental):
-            # 查不到曲目：不再重试，但**标题继续常驻**——
-            # 用户要的是"歌名长期显示"，查不到也不该让气泡空掉或消失。
+            # 查不到曲目：不再重试，本会话这首歌就当无词——不出气泡。
             self._no_lyric_keys.add(key)
-            if self._title_line and not self._bubble_blocked():
-                self._show("", title=self._title_line, force=True)
             return
         if lyrics.instrumental:
             self._enter_instrumental_mode(lyrics)

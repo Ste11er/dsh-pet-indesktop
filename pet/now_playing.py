@@ -60,6 +60,9 @@ class Playback:
     position: float | None
     updated_at: float
     app_id: str = ""
+    # ncm-cli 来源的加密歌曲 ID（32 位 hex）：取词的精确入参（2026-09-30）。
+    # Windows SMTC 来源恒为空串；调用方仅在非空时优先走 ncm 取词分支。
+    song_id: str = ""
 
 
 def _import_winrt():
@@ -326,6 +329,23 @@ def play_session_for(exe_name: str) -> bool:
         return False
 
 
+def _ncm_get_now_playing(tracked_app_id: str | None = None) -> Playback | None:
+    """Linux 的曲目来源：ncm-cli 共享采样器的最新快照（CLI 与 TUI 同源）。
+
+    ``tracked_app_id`` 在此来源下无意义（只有一个 ncm 会话），签名保持兼容。
+    快照由 :class:`pet.ncm_player.NcmSampler` 后台线程维护，本函数零子进程
+    成本，可在任意线程调用。
+    """
+    try:
+        from . import ncm_player
+    except Exception:
+        return None
+    try:
+        return ncm_player.current_playback()
+    except Exception:
+        return None
+
+
 def get_now_playing(tracked_app_id: str | None = None) -> Playback | None:
     """返回当前播放信息；无播放器/无会话/任何异常时返回 ``None``。
 
@@ -334,6 +354,9 @@ def get_now_playing(tracked_app_id: str | None = None) -> Playback | None:
 
     本函数绝不抛异常——歌词只是锦上添花，不能因为第三方接口异常影响桌宠本体。
     """
+    if sys.platform.startswith("linux"):
+        # Windows 专属的 SMTC 链路在 Linux 上换 ncm-cli 来源（2026-09-30）。
+        return _ncm_get_now_playing(tracked_app_id)
     if sys.platform != "win32":
         return None
     try:

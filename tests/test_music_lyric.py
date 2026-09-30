@@ -10,6 +10,8 @@ import logging
 import time
 import urllib.request
 
+import pytest
+
 from pet import music_lyric
 from pet.music_lyric import Lyrics, LyricLine, parse_lrc
 from pet.music_lyric_controller import LyricTracker
@@ -376,7 +378,11 @@ class _FakeWin(QObject):
 
 
 def test_title_shows_immediately_on_track_change():
-    """切歌瞬间就出标题，不等取词——填上取词那几秒的空窗。"""
+    """切歌后要等取词结果才知道有没有词——在结果落地前不出任何气泡。
+
+    2026-09-30 语义变更（ncm-cli 集成）：旧版切歌瞬间亮「我在唱《》」标题；
+    现在无词的歌连标题都不能出，而取词在途时尚不知有无词，故空窗期不显示。
+    """
     from pet.music_lyric_controller import MusicLyricController
 
     win = _FakeWin()
@@ -386,8 +392,8 @@ def test_title_shows_immediately_on_track_change():
     playback = type("P", (), {"position": None, "updated_at": 0.0})()
 
     ctrl._start_track(("夜曲", "周杰伦"), "夜曲", "周杰伦", playback, 100.0)
-    assert win.shown == [("", "我在唱《夜曲》")], win.shown
-    assert ctrl._title_line == "我在唱《夜曲》"
+    assert win.shown == [], win.shown
+    assert ctrl._title_line == "我在唱《夜曲》"  # 内部状态照常建立
 
 
 def test_title_persists_after_lyrics_arrive():
@@ -409,7 +415,11 @@ def test_title_persists_after_lyrics_arrive():
 
 
 def test_title_kept_when_song_has_no_lyrics():
-    """无词歌也要常驻标题，不能把气泡清空或让歌名消失。"""
+    """无词歌也要常驻标题，不能把气泡清空或让歌名消失。
+
+    2026-09-30 语义变更（ncm-cli 集成，用户明确要求）：**无词 → 完全无气泡**。
+    本测试保留改判「查不到 = 无词」的路径，但断言翻转为：什么都不显示。
+    """
     from pet.music_lyric_controller import MusicLyricController
 
     win = _FakeWin()
@@ -419,8 +429,94 @@ def test_title_kept_when_song_has_no_lyrics():
     ctrl._on_lyrics_ready(("x", "y"), None)
 
     assert ("x", "y") in ctrl._no_lyric_keys
-    assert win.shown[-1] == ("", "我在唱《x》"), win.shown[-1]
-    assert ctrl._title_line == "我在唱《x》"
+    assert win.shown == [], "无词歌不得出任何气泡（连标题也没有）"
+
+
+def test_no_title_bubble_while_lyrics_loading():
+    """取词在途的空窗也不出气泡——严格「无词不出气泡」口径的一部分。"""
+    from pet.music_lyric_controller import MusicLyricController
+
+    win = _FakeWin()
+    ctrl = MusicLyricController(win)
+    ctrl._current_key = ("x", "y")
+    ctrl._title_line = "我在唱《x》"
+    # 「还在取词」路径：不显示任何东西
+    ctrl._on_playback_ready(_playback(title="x", artist="y"))
+    assert win.shown == []
+
+
+def test_ncm_playback_drives_full_pipeline():
+    """ncm 来源的 Playback（带 song_id）端到端：切歌→取词带 song_id→装词→出气泡。
+
+    取词线程打桩成线程内直接回调（真实线程里的 _lyrics_ready.emit 是排队
+    信号，测试里没有事件循环），这里直接同步驱动同一条路径。
+    """
+    import pet.music_lyric_controller as mod
+    from pet.now_playing import Playback, Track
+
+    win = _FakeWin()
+    ctrl = mod.MusicLyricController(win)
+    ctrl._primed = True
+    captured = {}
+
+    class _ImmediateFetch:
+        """桩 _fetch_worker：记录 song_id 并直接把结果送回 _on_lyrics_ready。"""
+
+        def __init__(self, lyrics):
+            self._lyrics = lyrics
+
+        def __call__(self, key, title, artist, song_id=""):
+            captured["song_id"] = song_id
+            # 走真实线程会经排队信号回主线程；测试同步等价路径：
+            ctrl._on_lyrics_ready(key, self._lyrics)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        ctrl, "_fetch_worker",
+        _ImmediateFetch(Lyrics(lines=(LyricLine(0.0, "晴天的第一句"),))))
+    try:
+        playback = Playback(
+            track=Track(title="晴天", artist="周杰伦", playing=True),
+            position=10.0, updated_at=0.0, app_id="ncm-cli",
+            song_id="D6BD718AA81FAE09DF9B96F1ED836A82",
+        )
+        ctrl._on_playback_ready(playback)
+        assert captured["song_id"] == "D6BD718AA81FAE09DF9B96F1ED836A82"
+        assert ctrl._current_key == ("晴天", "周杰伦")
+        # 歌词已装载并显示：标题在第一行、正文是首句。
+        assert win.shown, "歌词到位后应显示气泡"
+        subtitle, text = win.shown[-1]
+        assert subtitle == "我在唱《晴天》"
+        assert "晴天" in text
+    finally:
+        monkeypatch.undo()
+
+
+def test_ncm_stopped_snapshot_freezes_progress():
+    """ncm 暂停表现为 stopped 快照（playing=False）：同曲冻结进度、不清状态。"""
+    import pet.music_lyric_controller as mod
+    from pet.now_playing import Playback, Track
+
+    win = _FakeWin()
+    ctrl = mod.MusicLyricController(win)
+    ctrl._current_key = ("晴天", "周杰伦")
+    ctrl._primed = True
+    ctrl._title_line = "我在唱《晴天》"
+    ctrl._tracker.lead = 0.0
+    ctrl._tracker.load([LyricLine(0.0, "第一句"), LyricLine(60.0, "第二句")],
+                       now=100.0, position=10.0, reported=True)
+
+    stopped = Playback(
+        track=Track(title="晴天", artist="周杰伦", playing=False),
+        position=10.0, updated_at=0.0, app_id="ncm-cli",
+    )
+    ctrl._on_playback_ready(stopped)
+
+    # 暂停：不清 key、不 reset——恢复播放时同一首歌能接上。
+    assert ctrl._current_key == ("晴天", "周杰伦")
+    assert ctrl._tracker.has_lyrics
+    assert ctrl._tracker._paused is True
+
 
 
 def test_title_goes_into_body_when_no_lyric():
@@ -1096,10 +1192,11 @@ def test_align_available_gates(monkeypatch):
 
 
 def test_start_track_first_song_without_position_still_announces_title(monkeypatch):
-    """缺陷 1 回归：功能开启时歌已在播且播放器不报进度，必须至少亮出歌名。
+    """缺陷 1 回归：功能开启时歌已在播且播放器不报进度，曲目识别链路照常工作。
 
-    旧实现在 _announce() 之前就 return，用户看到的是一片空白，于是"识别不到
-    我放到一半的歌"。
+    2026-09-30 语义变更：旧断言是"至少亮出歌名"；无词语义收紧后，
+    取词结果落地前不出气泡，本测试改为钉住**内部状态**（标题建立、锚点正确、
+    取词已派发）——用户可见行为由 ncm 相关测试与实机记录覆盖。
     """
     import pet.music_lyric_controller as mod
 
@@ -1111,8 +1208,10 @@ def test_start_track_first_song_without_position_still_announces_title(monkeypat
 
     ctrl._start_track(("夜曲", "周杰伦"), "夜曲", "周杰伦", _playback(None), 100.0)
 
-    assert win.shown == [("", "我在唱《夜曲》")], win.shown
+    assert win.shown == [], "取词结果落地前不出气泡"
     assert ctrl._title_line == "我在唱《夜曲》"
+    # 锚点就是"检测到这首歌的时刻"——即把此刻当作第 0 秒
+    assert ctrl._detected_at == 100.0
     # 锚点就是"检测到这首歌的时刻"——即把此刻当作第 0 秒
     assert ctrl._detected_at == 100.0
 
