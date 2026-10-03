@@ -31,6 +31,25 @@
 
 ---
 
+## 待办台账与实施计划
+
+以下计划表以 2026-10-02 的 `main` / `5ff2aa9` 为核对基线；仅细化现有待办，不表示功能已实施。
+
+| 文档 | 一句话内容 | 何时必读 |
+|---|---|---|
+| [`plans/NEXT.md`](plans/NEXT.md) | 跨任务待办的来源台账与入池、归档规则。 | 选取后续工作或调整待办状态时；执行前结合下列独立计划表。 |
+| [`plans/DONE.md`](plans/DONE.md) | 已完成计划的追加式证据档案。 | 完成待办并从 NEXT 移除时；查历史完成证据时。 |
+| [`plan/next/README.md`](../plan/next/README.md) | 全部 7 项的顺序、依赖、工作量建议和通用交付门。 | 安排后续工作、核对当前分支与历史台账差异时。 |
+| [P-2026-09-29-01 新协议移植](../plan/next/P-2026-09-29-01-remote-mux.md) | 审批/提问的 mux 协议核查、桥接与回写迁移计划。 | 修改 DSH 可点击交互、新协议适配或重连对账前。 |
+| [P-2026-09-29-02 XDG 路径](../plan/next/P-2026-09-29-02-xdg-path.md) | JS/Python 桥接目录统一及跨平台验证计划。 | 修复自定义配置路径下静默零事件前。 |
+| [P-2026-09-29-03 在线去抖](../plan/next/P-2026-09-29-03-online-debounce.md) | 探测去抖、失联与退出区分及提醒清理计划。 | 修改 DSH offline 转换或交互清理规则前。 |
+| [P-2026-09-29-04 状态反馈](../plan/next/P-2026-09-29-04-state-feedback.md) | 普通状态反馈覆盖审计与缺口补齐计划。 | 为完成、失败等状态增加气泡或动画前。 |
+| [P-2026-09-29-05 额度再评估](../plan/next/P-2026-09-29-05-quota-review.md) | 由真实需求触发的额度展示与凭据刷新评估计划。 | 扩大额度展示或改变登录过期处理前。 |
+| [P-2026-09-29-06 改名引用同步](../plan/next/P-2026-09-29-06-quota-doc-links.md) | 研究档改名实际合入后同步引用的条件式计划。 | 额度研究档改名合入 main 的同一轮。 |
+| [P-2026-09-29-07 菜单状态](../plan/next/P-2026-09-29-07-menu-link-status.md) | 缺失依赖核对、菜单状态后缀及热路径测量计划。 | 给联动菜单增加状态展示前，先核对探测接口是否存在。 |
+
+---
+
 ## 构建与发布
 
 | 文档 | 一句话内容 | 何时必读 |
@@ -147,6 +166,7 @@
 | [`PR-REPORT-music-lyric-align-2026-09-22.md`](PR-REPORT-music-lyric-align-2026-09-22.md) | 歌词对齐（`music_lyric_align`）PR 报告：手动校准快进/半途起播、会话选择与会话粘滞、`advance` 与 `line_now` 的分工；含性能实测表与网易云「不上报进度」的实机复现记录。 | 改歌词位置来源/对齐入口/多播放器会话选择时；或需要「为什么不做自动识别快进」的排查证据（桌面歌词不可读探针）时。**「对齐菜单点不动 / 歌词整首不显示」看 [`PR-REPORT-MUSIC-LYRIC-SYSTEM-PROXY-2026-09-22.md`](PR-REPORT-MUSIC-LYRIC-SYSTEM-PROXY-2026-09-22.md)**（估算位置冒充真值 + 系统代理拖死取词两处修复）。 |
 | [`PR-REPORT-LOCAL-WIP-BATCH-2026-09-22.md`](PR-REPORT-LOCAL-WIP-BATCH-2026-09-22.md) | 本地 WIP 批次 PR 报告：交付证据纪律（三份证据 + 机器化校验）、`build_onedir.ps1` 的 Qt 绑定排他（不修则构建被 PyInstaller 中止）、产物 TTS 自检脚本（真产物假红 → 修掉）、`character_head_box()` 与 shenshen 头部框数据。 | 改 `scripts/build_onedir.ps1` 的排除清单、`scripts/verify_bundle_tts.py` 的闭包判定、`pet/catalog.py` 的 `body_box`/`head_box` 取值，或要写新的 PR 报告（含三个必备章节的实例）时。 |
 | [`PR-REPORT-MUSIC-LYRIC-SYSTEM-PROXY-2026-09-22.md`](PR-REPORT-MUSIC-LYRIC-SYSTEM-PROXY-2026-09-22.md) | 歌词取词被系统代理拖死 + 网易云「歌词对齐」被误关的 PR 报告：系统代理下三源 20~41s 全超时 → 每首未缓存曲目「0 行/9.00s」，改直连后 1.27s/62 行；估算位置不再冒充「播放器上报的真值」。 | 改歌词取词的网络出口/超时/失败日志时；或排查「歌词突然全都没有」「歌曲只有歌名没有词」「歌词对齐菜单点不动」这类反馈时（含现场日志判读口径）。**影响面与推荐设置见 [`NETWORK-PROXY-AND-VPN-2026-09-22.md`](NETWORK-PROXY-AND-VPN-2026-09-22.md)**。 |
+| [`PR-REPORT-NCM-CLI-SING-LYRIC-2026-09-30.md`](PR-REPORT-NCM-CLI-SING-LYRIC-2026-09-30.md) | ncm-cli（网易云音乐 CLI/TUI）Linux 自动唱歌+歌词气泡 PR 报告：3s 采样线程读 `ncm-cli state`（socket 门控空闲零开销）、`play-session.json` 加密 ID 精确取词（失败只写日志不兜底）、**无词歌不出气泡**全局语义变更、pureMusic 优先于 noLyric；含 Wayland 截屏禁用下的三探针交叉验证与四场景实机记录。 | 改 `pet/ncm_player.py`、Linux 音乐检测/取词分派（`music_detect`/`now_playing`）、或调整「无词不出气泡」语义时；排查 Linux 唱歌/歌词不触发时（含 socket 门控与 prime 首读两个坑）。 |
 
 ---
 
